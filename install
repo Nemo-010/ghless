@@ -180,6 +180,11 @@ for f in $(profile_files); do
     say "migrated: removed the old errand-home block from $f"
   fi
 done
+# An earlier release used XDG_DATA_HOME even outside $HOME; carry its keys and ledger over.
+XDG_OLD="${XDG_DATA_HOME:-}/ghless"
+if [ -n "${XDG_DATA_HOME:-}" ] && [ "$XDG_OLD" != "$GHLESS_PREFIX" ] && [ -d "$XDG_OLD/data" ] && [ ! -e "$GHLESS_DATA/nostr.key" ] && [ -z "${USER_DATA:-}" ]; then
+  cp -a "$XDG_OLD/data/." "$GHLESS_DATA/" && say "migrated: copied identities and ledger from $XDG_OLD/data (the old copy is kept)"
+fi
 for d in $SKILL_DIRS; do
   case "$(readlink "$d/errand-home" 2>/dev/null)" in */errand-home/*) rm -f "$d/errand-home"; say "migrated: removed $d/errand-home" ;; esac
 done
