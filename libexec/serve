@@ -1,6 +1,8 @@
 #!/bin/sh
 # serve: a git web index on a temporary public cfrs tunnel.
 #   ghless serve [NAME=PATH | PATH ...]     (default: ghless itself)
+# Each repo page and the index link every other copy recorded in the ledger
+# (Radicle, Nostr, Arweave, Software Heritage, Wayback) and the newest archive zip.
 # A directory that is not a git checkout (or a dirty ghless) is snapshotted
 # into a scratch repo first, so a zip-installed tree can be served.
 #   ghless serve --stop | --status
@@ -43,7 +45,15 @@ while [ "$i" -lt "$n_args" ]; do
   set -- "$@" "$n=$p"
   CLONES="$CLONES $n"
 done
-python3 "$GHLESS_HOME/libexec/gitweb-static.py" "$PUB" "$@" || warn "some repositories were not published (see above)"
+DLARGS=""
+for n in $CLONES; do
+  za=$(ls -t "$GHLESS_DATA"/archive/"$n"-*.zip 2>/dev/null | head -n1)
+  [ -n "$za" ] && DLARGS="$DLARGS --download $n=$za"
+  zp=$(awk -F'\t' -v n="$n" '$2=="pack" && $3==n {p=$4} END {print p}' "$GHLESS_DATA/published.tsv" 2>/dev/null)
+  [ -f "$zp" ] && DLARGS="$DLARGS --download $n=$zp"
+done
+# shellcheck disable=SC2086
+python3 "$GHLESS_HOME/libexec/gitweb-static.py" --ledger "$GHLESS_DATA/published.tsv" $DLARGS "$PUB" "$@" || warn "some repositories were not published (see above)"
 
 doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
 url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)

@@ -262,6 +262,23 @@ dry_case() {
 }
 check "dry-run fails like the real run: no ready lane, missing directory" dry_case
 
+copies_case() {
+  printf '%s\n' \
+    "t	radicle	fx	rad:zABC123 (copy on: iris.radicle.xyz)	ok" \
+    "t	nostr	fx	nostr://npubXYZ/relay.example/fx	ok" \
+    "t	arweave	fx	parts: arweave://ADDR/fx-part1 arweave://ADDR/fx-part2	ok" \
+    "t	swh	fx	https://example.org/fx	ok:200" \
+    "t	wayback	fx	https://example.org/fx	ok(existing-or-new):https://web.archive.org/web/2026/https://example.org/fx" > "$T/led2.tsv"
+  echo zipdata > "$T/fx-archive.zip"
+  python3 "$ROOT/libexec/gitweb-static.py" --ledger "$T/led2.tsv" --download "fx=$T/fx-archive.zip" "$T/pub3" fx="$FX" || return 1
+  pg="$T/pub3/fx/index.html"
+  for want in 'api/v1/repos/rad:zABC123' 'gitworkshop.dev/npubXYZ/relay.example/fx' 'git clone arweave://ADDR/fx-part2' 'browse/origin/?origin_url=' 'web.archive.org/web/2026' "href='downloads/fx-archive.zip'"; do
+    grep -qF "$want" "$pg" || { echo "missing $want"; return 1; }
+  done
+  [ -f "$T/pub3/fx/downloads/fx-archive.zip" ] && grep -qF 'other copies' "$T/pub3/index.html"
+}
+check "tunnel page links every other copy and the archive download" copies_case
+
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
   "$ROOT/bin/ghless" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1

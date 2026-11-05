@@ -91,7 +91,7 @@ if [ -n "$EXTRAS" ]; then
   printf '%s\n' "$EXTRAS" | while IFS= read -r x; do [ -n "$x" ] && cp -a "$x" "$OUT/extra/"; done
 fi
 tsv="$OUT/NETWORK.tsv"; : > "$tsv"
-net() { printf '%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" >> "$tsv"; printf '%-10s %-6s %s\n' "$1" "$3" "$2"; }
+net() { ledger_add "$1" "$NAME" "$2" "$3"; printf '%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" >> "$tsv"; printf '%-10s %-6s %s\n' "$1" "$3" "$2"; }
 
 if [ "$NET" = 1 ]; then
   urls="$UPSTREAM $PUBURLS"
@@ -120,6 +120,11 @@ fi
 
 (cd "$OUT" && find . -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 sha256sum > MANIFEST.sha256)
 zip_dir "$OUT" "$OUT.zip"
+ledger_add archive "$NAME" "$OUT.zip" ok
+if have cfrs && CFRS_STATE_DIR="$CFRS_STATE_DIR" cfrs ps 2>/dev/null | grep -q '^ghless-pub .*ready'; then
+  say "refreshing the tunnel index with the new archive"
+  "$GHLESS_HOME/libexec/serve" "$NAME=$DIR" >/dev/null 2>&1 || warn "could not refresh the tunnel index"
+fi
 say "archive: $OUT"
 say "zip:     $OUT.zip ($(du -h "$OUT.zip" | cut -f1))"
 echo "$OUT.zip"

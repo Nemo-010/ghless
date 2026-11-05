@@ -24,5 +24,6 @@ else
   rm -rf "$t"
 fi
 (cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" > "$OUT.sha256")
+ledger_add pack "$(basename "$GHLESS_HOME")" "$OUT" ok
 say "wrote $OUT ($(du -h "$OUT" | cut -f1))"
 echo "$OUT"
