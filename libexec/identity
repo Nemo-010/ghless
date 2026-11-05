@@ -2,6 +2,8 @@
 # identity: mint or show the self-made identities used by `publish`.
 #   ghless identity [show]    print public identifiers only, never keys
 #   ghless identity init      create any identity that does not exist yet
+#   ghless identity export F  back up all private keys to F (0600, refuses to overwrite)
+#   ghless identity import F  restore keys that are missing
 # Keys live in $GHLESS_DATA (radicle/, nostr.key, arweave-wallet.json), mode 0600.
 # Back that directory up; losing it loses the right to update what was published.
 set -u
@@ -28,8 +30,29 @@ show() {
   if github_authed; then printf 'github   %s\n' "$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)"; else echo "github   none"; fi
 }
 
+export_ids() { # export_ids FILE: tar of every private key, mode 0600
+  [ -n "${1:-}" ] || die "usage: identity export FILE"
+  [ ! -e "$1" ] || die "$1 exists; refusing to overwrite"
+  items=""; for f in radicle nostr.key arweave-wallet.json; do [ -e "$GHLESS_DATA/$f" ] && items="$items $f"; done
+  [ -n "$items" ] || die "no identities to export (run: ghless identity init)"
+  # shellcheck disable=SC2086
+  ( umask 077; cd "$GHLESS_DATA" && tar -czf "$(abspath "$1")" $items ) || die "export failed"
+  say "wrote $1 (mode 0600). It holds private keys: store it somewhere safe, never commit it."
+}
+import_ids() { # import_ids FILE: restores keys that do not exist yet
+  [ -f "${1:-}" ] || die "usage: identity import FILE"
+  t=$(mktemp -d "${TMPDIR:-/tmp}/ghless-id.XXXXXX"); tar -xzf "$1" -C "$t" || die "not a ghless identity archive"
+  for f in radicle nostr.key arweave-wallet.json; do
+    [ -e "$t/$f" ] || continue
+    if [ -e "$GHLESS_DATA/$f" ]; then warn "$f already exists; kept"; else cp -a "$t/$f" "$GHLESS_DATA/$f" && say "restored $f"; fi
+  done
+  rm -rf "$t"; show
+}
+
 case "${1:-show}" in
+  export) export_ids "${2:-}" ;;
+  import) import_ids "${2:-}" ;;
   init) init; show ;;
   show) show ;;
-  *) die "usage: identity [show|init]" ;;
+  *) die "usage: identity [show|init|export FILE|import FILE]" ;;
 esac

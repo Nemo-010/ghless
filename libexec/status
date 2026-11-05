@@ -1,0 +1,26 @@
+#!/bin/sh
+# status: what was published where, from the ledger.
+#   ghless status [--check]    --check asks Radicle seeds and the git web index whether they still serve the commit
+set -u
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
+CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+L="$GHLESS_DATA/published.tsv"
+[ -s "$L" ] || { echo "nothing published yet (ghless publish DIR)"; exit 0; }
+# latest row per lane+project
+awk -F'\t' '{k=$2 "\t" $3; row[k]=$0} END {for (k in row) print row[k]}' "$L" | sort -t'	' -k3,3 -k2,2 |
+while IFS='	' read -r ts lane proj url st; do
+  printf '%-20s %-9s %-8s %s\n' "$ts" "$lane" "$st" "$proj  $url"
+  [ "$CHECK" = 1 ] || continue
+  case "$lane" in
+    radicle)
+      rid=$(printf '%s' "$url" | grep -o 'rad:[A-Za-z0-9]*')
+      [ -n "$rid" ] || continue
+      for h in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do
+        head=$(curl -s -m 15 "https://$h/api/v1/repos/$rid" | jq -r '.payloads["xyz.radicle.project"].meta.head // "absent"' 2>/dev/null)
+        printf '    %-22s head %s\n' "$h" "$head"
+      done ;;
+    tunnel)
+      c=$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$url/index.html"); printf '    index answers %s\n' "$c" ;;
+  esac
+done

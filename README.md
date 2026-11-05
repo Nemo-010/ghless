@@ -26,11 +26,17 @@ once, and the rest needs nothing else.
 | archive | `ghless archive [dir]` | git bundles (upstream base, your changes, all), patch series, tarball, SHA-256 manifest, zip; Software Heritage and Wayback requests; ghre snapshot of upstream issues and PRs. |
 | recover a lost account | `ghre ledger`, `ghre recover`, `ghre snapshot` | the ghre tool, unchanged. See `components/ghre/PLAYBOOK.md`. |
 | bulk web archiving | `bulk-archive`, `spn2`, `megalodon`, ... | the bulk-archive kit. |
+| what went where | `ghless status [--check]` | ledger of every publish, optional live check of seeds and the tunnel |
+| back up keys | `ghless identity export F` / `import F` | one 0600 archive of the radicle, nostr and arweave keys |
+| preview | `ghless publish --dry-run` | which lanes are ready, nothing pushed |
 | share the project | `ghless pack` | zip of this tree plus `.sha256`. |
 
 When a new GitHub account exists, nothing changes for you: `gh` uses it,
 `ghless doctor` shows `github account ok`, and `ghless publish` adds the
 github lane first. The other lanes and the archive keep running regardless.
+
+`gh` additionally answers `gh repo clone`, `gh release download` and `gh gist view` in forge mode (origin, then broker). `ghless COMMAND --help` prints each command's usage; `eval "$(ghless completion bash)"` adds completion.
+Numbers and what was confirmed by running: `docs/MEASUREMENTS.md`.
 
 ## Install details
 

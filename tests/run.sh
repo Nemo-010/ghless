@@ -216,6 +216,25 @@ STUB
 check "github lane: creates the repo, pushes HEAD, refuses a diverged push (stub gh, file remote)" github_lane_case
 unset GHLESS_GITHUB_URL
 
+identity_case() {
+  GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity init >/dev/null 2>&1 || return 1
+  a=$(GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity show | grep -E '^(nostr|arweave)')
+  GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity export "$T/ids.tgz" >/dev/null 2>&1 || return 1
+  GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity export "$T/ids.tgz" >/dev/null 2>&1 && return 1
+  [ "$(stat -c %a "$T/ids.tgz")" = 600 ] || return 1
+  GHLESS_DATA="$T/idB" "$ROOT/bin/ghless" identity import "$T/ids.tgz" >/dev/null 2>&1 || return 1
+  b=$(GHLESS_DATA="$T/idB" "$ROOT/bin/ghless" identity show | grep -E '^(nostr|arweave)')
+  [ -n "$a" ] && [ "$a" = "$b" ]
+}
+check "identity export/import round-trips the same nostr and arweave ids" identity_case
+
+status_case() {
+  printf '2026-01-01T00:00:00Z\tnostr\tp\tnostr://x\tok\n' > "$T/led.tsv"; mkdir -p "$T/sd"; cp "$T/led.tsv" "$T/sd/published.tsv"
+  GHLESS_DATA="$T/sd" "$ROOT/bin/ghless" status | grep -q 'nostr.*ok.*nostr://x' &&
+  "$ROOT/bin/ghless" publish "$FX" --dry-run >/dev/null 2>&1 && "$ROOT/bin/ghless" completion bash | grep -q _ghless
+}
+check "status, publish --dry-run and completion work" status_case
+
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
   "$ROOT/bin/ghless" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1

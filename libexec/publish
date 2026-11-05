@@ -1,6 +1,6 @@
 #!/bin/sh
 # publish: push a project to every lane that works, record where it went.
-#   ghless publish [DIR] [--name NAME] [--lanes github,radicle,nostr,arweave] [--desc TEXT]
+#   ghless publish [DIR] [--dry-run] [--name NAME] [--lanes github,radicle,nostr,arweave] [--desc TEXT]
 # DIR defaults to the current directory. The pushed ref is DIR's HEAD, published
 # as `main` from a staging repo kept in $GHLESS_DATA/publish/NAME, so DIR's own
 # remotes and branches are never touched. Re-running updates the same repos.
@@ -10,9 +10,10 @@ set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
 
-DIR=""; NAME=""; LANES=""; DESC=""
+DIR=""; NAME=""; LANES=""; DESC=""; DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --dry-run) DRY=1 ;;
     --name|--lanes|--desc) [ $# -ge 2 ] || die "$1 needs a value"
       case "$1" in --name) NAME="$2" ;; --lanes) LANES="$2" ;; --desc) DESC="$2" ;; esac
       shift ;;
@@ -33,6 +34,19 @@ if [ -z "$LANES" ]; then
   github_authed && LANES="github,$LANES"
 fi
 
+if [ "$DRY" = 1 ]; then
+  say "dry run: would publish $DIR (HEAD $(git -C "$DIR" rev-parse --short HEAD)) as '$NAME' to: $LANES"
+  for l in $(printf '%s' "$LANES" | tr ',' ' '); do
+    case "$l" in
+      github) github_authed && echo "github   ready" || echo "github   would be skipped: no working token" ;;
+      radicle) have rad && echo "radicle  ready" || echo "radicle  rad missing (ghless tools install radicle)" ;;
+      nostr) have ngit && echo "nostr    ready" || echo "nostr    ngit missing" ;;
+      arweave) have git-remote-arweave && echo "arweave  ready" || echo "arweave  helper missing" ;;
+      *) echo "$l  unknown lane" ;;
+    esac
+  done
+  exit 0
+fi
 STAGE="$GHLESS_DATA/publish/$NAME"
 mkdir -p "$STAGE"
 [ -d "$STAGE/.git" ] || git -C "$STAGE" init -q -b main

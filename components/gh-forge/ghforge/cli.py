@@ -147,6 +147,9 @@ def _route(argv, ctx):
         return search.run(rest, ctx)
     if command == "auth":
         return _auth_route(rest)
+    if command == "gist" and rest and rest[0] == "view":
+        from .cmds import transfer
+        return transfer.gist_view(rest[1:], ctx)
     if command in ("config", "extension", "gist", "project", "codespace",
                    "copilot", "ssh-key", "gpg-key", "alias", "secret", "variable"):
         raise Unsupported(
@@ -164,6 +167,9 @@ def _repo_route(args, ctx):
         return repo.view(rest, ctx)
     if sub == "list":
         return repo.list_repos(rest, ctx)
+    if sub == "clone":
+        from .cmds import transfer
+        return transfer.repo_clone(rest, ctx)
     raise Unsupported("gh repo %s writes; the read-only forge serves reads only" % sub)
 
 
@@ -225,6 +231,9 @@ def _release_route(args, ctx):
         return actions.release_list(rest, ctx)
     if sub == "view":
         return actions.release_view(rest, ctx)
+    if sub == "download":
+        from .cmds import transfer
+        return transfer.release_download(rest, ctx)
     raise Unsupported("gh release %s writes; the read-only forge serves reads only" % sub)
 
 
