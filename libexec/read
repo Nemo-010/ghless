@@ -15,6 +15,12 @@ P="${2:-$S_PATH}"; REF="${3:-$S_REF}"
 FORGE=https://forge.web.pkgforge.dev/github
 
 if [ -z "$P" ]; then
+  # raw.githubusercontent.com accepts HEAD as a ref, so no API call (and none of
+  # its 60 an hour) is spent when the README has a common name.
+  for name in README.md README.markdown README.rst README README.txt readme.md; do
+    raw="https://raw.githubusercontent.com/$S_OWNER/$S_REPO/${REF:-HEAD}/$name"
+    curl -fsSL -m 30 "$raw" 2>/dev/null && exit 0
+  done
   u="$FORGE/repos/$S_OWNER/$S_REPO/readme"
   [ -n "$REF" ] && u="$u?ref=$REF"
   curl -fsSL -m 60 -H 'Accept: application/vnd.github.raw' "$u" && exit 0
@@ -22,11 +28,7 @@ if [ -z "$P" ]; then
   die "cannot read README of $S_OWNER/$S_REPO"
 fi
 
-if [ -z "$REF" ]; then
-  REF=$(curl -fsS -m 30 "https://api.github.com/repos/$S_OWNER/$S_REPO" 2>/dev/null | jq -r .default_branch 2>/dev/null)
-  case "$REF" in ""|null) REF=$(curl -fsS -m 30 "$FORGE/repos/$S_OWNER/$S_REPO" 2>/dev/null | jq -r .default_branch 2>/dev/null) ;; esac
-  case "$REF" in ""|null) REF=HEAD ;; esac
-fi
+REF="${REF:-HEAD}"
 raw="https://raw.githubusercontent.com/$S_OWNER/$S_REPO/$REF/$P"
 curl -fsSL -m 60 "$raw" 2>/dev/null && exit 0
 curl -fsSL -m 60 "$BROKER/$raw" 2>/dev/null && exit 0

@@ -26,13 +26,13 @@ have() { command -v "$1" >/dev/null 2>&1; }
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 arch() {
-  case "$(uname -m)" in
+  case "${GHLESS_ARCH:-$(uname -m)}" in
     x86_64|amd64) echo x86_64 ;;
     aarch64|arm64) echo aarch64 ;;
     armv7l|armv7) echo armv7 ;;
     i686|i386) echo i686 ;;
     riscv64) echo riscv64 ;;
-    *) echo "$(uname -m)" ;;
+    *) echo "${GHLESS_ARCH:-$(uname -m)}" ;;
   esac
 }
 

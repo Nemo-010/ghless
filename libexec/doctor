@@ -24,12 +24,24 @@ done
 [ "$BRIEF" = 1 ] && exit $rc
 
 row "arch" "$(arch)" "$(uname -sr)"
-g=$(code https://github.com/git/git); row "github.com direct" "$g" ""
-a=$(code https://api.github.com/rate_limit); row "api.github.com direct" "$a" ""
-b=$(code "$BROKER/https://github.com/git/git"); row "broker (git paths)" "$b" "$BROKER"
-f=$(code https://forge.web.pkgforge.dev/llms.txt); row "forge proxy" "$f" "read-only GitHub API fallback"
-s=$(code https://archive.softwareheritage.org/api/1/); row "software heritage" "$s" ""
-w=$(code https://web.archive.org/); row "wayback" "$w" ""
+# The network probes are independent; run them together and print in order.
+P=$(mktemp -d "${TMPDIR:-/tmp}/ghless-doctor.XXXXXX")
+trap 'rm -rf "$P"' EXIT
+probe() { code "$2" > "$P/$1" 2>/dev/null & }
+probe 1 https://github.com/git/git
+probe 2 https://api.github.com/rate_limit
+probe 3 "$BROKER/https://github.com/git/git"
+probe 4 https://forge.web.pkgforge.dev/llms.txt
+probe 5 https://archive.softwareheritage.org/api/1/
+probe 6 https://web.archive.org/
+( github_authed && echo yes > "$P/auth" ) &
+wait
+row "github.com direct" "$(cat "$P/1")" ""
+row "api.github.com direct" "$(cat "$P/2")" ""
+row "broker (git paths)" "$(cat "$P/3")" "$BROKER"
+row "forge proxy" "$(cat "$P/4")" "read-only GitHub API fallback"
+row "software heritage" "$(cat "$P/5")" ""
+row "wayback" "$(cat "$P/6")" ""
 
 if have gh; then
   if github_authed; then

@@ -30,6 +30,7 @@ install_cfrs() {
   [ -n "$sha" ] || { warn "cfrs has no pin for $(arch)"; return 1; }
   asset="cfrs-$(arch)-unknown-linux-musl"
   [ "$(arch)" = armv7 ] && asset="cfrs-armv7-unknown-linux-musleabihf"
+  [ "$(arch)" = riscv64 ] && asset="cfrs-riscv64gc-unknown-linux-musl"
   t=$(work_tmp)
   download_pinned "$CFRS_BASE/$asset" "$sha" "$t/cfrs" || { rm -rf "$t"; return 1; }
   chmod 0755 "$t/cfrs"; mv -f "$t/cfrs" "$BINDIR/cfrs"
@@ -37,6 +38,7 @@ install_cfrs() {
   if [ -n "$psha" ]; then
     passet="pod-netns-$(arch)-unknown-linux-musl"
     [ "$(arch)" = armv7 ] && passet="pod-netns-armv7-unknown-linux-musleabihf"
+    [ "$(arch)" = riscv64 ] && passet="pod-netns-riscv64gc-unknown-linux-musl"
     if download_pinned "$CFRS_BASE/$passet" "$psha" "$t/pod-netns"; then
       chmod 0755 "$t/pod-netns"; mv -f "$t/pod-netns" "$BINDIR/pod-netns"
     else
@@ -113,6 +115,9 @@ install_arweave() {
     GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
   ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
   for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b"; done
+  # The module cache is read-only and about 580 MB with the auto-fetched toolchain.
+  GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" go clean -modcache >/dev/null 2>&1
+  rm -rf "$GHLESS_PREFIX/go"
   rm -rf "$t"; mark arweave "$want" "$BINDIR/git-remote-arweave" "$BINDIR/arweave-git"; say "git-remote-arweave $ARWEAVE_COMMIT built"
 }
 
@@ -123,17 +128,33 @@ status() {
 }
 
 cmd="${1:-install}"; [ $# -gt 0 ] && shift
+run_tool() { # run_tool NAME: one installer by tool name
+  case "$1" in
+    cfrs) install_cfrs ;; radicle|rad) install_radicle ;; nak) install_nak ;;
+    ngit) install_ngit ;; arweave) install_arweave ;;
+    *) warn "unknown tool: $1"; false ;;
+  esac
+}
+
 case "$cmd" in
   status) status ;;
   install)
     [ $# -gt 0 ] || set -- cfrs radicle nak ngit arweave
-    rc=0
+    # Installers are independent (separate temp dirs and markers), so they run
+    # in parallel; each one's output is kept and printed in order.
+    LOGS=$(mktemp -d "${TMPDIR:-/tmp}/ghless-tools.XXXXXX")
+    trap 'rm -rf "$LOGS"' EXIT
+    n=0; PIDS=""
     for tool in "$@"; do
-      case "$tool" in
-        cfrs) install_cfrs ;; radicle|rad) install_radicle ;; nak) install_nak ;;
-        ngit) install_ngit ;; arweave) install_arweave ;;
-        *) warn "unknown tool: $tool"; false ;;
-      esac || { warn "$tool failed"; rc=1; }
+      n=$((n + 1))
+      ( run_tool "$tool" ) > "$LOGS/$n.log" 2>&1 &
+      PIDS="$PIDS $!"
+    done
+    rc=0; n=0
+    for pid in $PIDS; do
+      n=$((n + 1))
+      wait "$pid" || { rc=1; warn "$(eval "echo \${$n}") failed"; }
+      cat "$LOGS/$n.log" >&2
     done
     exit $rc ;;
   *) die "usage: tools [install [tool...]|status]" ;;
