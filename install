@@ -203,6 +203,7 @@ put_link() { # put_link NAME TARGET: only ever replaces links that are ours or d
     cur=$(readlink "$l"); inner="${2#"$GHLESS_HOME"}"; ours=0
     case "$cur" in "$GHLESS_HOME"/*|"$GHLESS_PREFIX"/*) ours=1 ;; esac
     [ "$ours" = 0 ] && [ "$inner" != "$2" ] && case "$cur" in *"$inner") ours=1; say "relinking $l (it pointed at another checkout: $cur)" ;; esac
+    [ "$ours" = 0 ] && case "$cur" in */ghless/bin/"$1") ours=1; say "relinking $l (it pointed at another ghless prefix: $cur)" ;; esac
     [ "$ours" = 0 ] && [ ! -e "$cur" ] && { ours=1; say "relinking $l (dangling link to $cur)"; }
     if [ "$ours" = 0 ]; then
       warn "$l is a link to $cur; left in place"
