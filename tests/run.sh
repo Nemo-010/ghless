@@ -219,12 +219,12 @@ unset GHLESS_GITHUB_URL
 
 identity_case() {
   GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity init >/dev/null 2>&1 || return 1
-  a=$(GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity show | grep -E '^(nostr|arweave)')
+  a=$(GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity show | grep -E '^(radicle|nostr|arweave)')
   GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity export "$T/ids.tgz" >/dev/null 2>&1 || return 1
   GHLESS_DATA="$T/idA" "$ROOT/bin/ghless" identity export "$T/ids.tgz" >/dev/null 2>&1 && return 1
   [ "$(stat -c %a "$T/ids.tgz")" = 600 ] || return 1
   GHLESS_DATA="$T/idB" "$ROOT/bin/ghless" identity import "$T/ids.tgz" >/dev/null 2>&1 || return 1
-  b=$(GHLESS_DATA="$T/idB" "$ROOT/bin/ghless" identity show | grep -E '^(nostr|arweave)')
+  b=$(GHLESS_DATA="$T/idB" "$ROOT/bin/ghless" identity show | grep -E '^(radicle|nostr|arweave)')
   [ -n "$a" ] && [ "$a" = "$b" ]
 }
 check "identity export/import round-trips the same nostr and arweave ids" identity_case

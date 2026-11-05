@@ -34,7 +34,7 @@ export_ids() { # export_ids FILE: tar of every private key, mode 0600
   [ -n "${1:-}" ] || die "usage: identity export FILE"
   out=$(abspath "$1")
   [ ! -e "$out" ] || die "$out exists; refusing to overwrite"
-  items=""; for f in radicle/keys nostr.key arweave-wallet.json; do [ -e "$GHLESS_DATA/$f" ] && items="$items $f"; done
+  items=""; for f in radicle/keys radicle/config.json nostr.key arweave-wallet.json; do [ -e "$GHLESS_DATA/$f" ] && items="$items $f"; done
   [ -n "$items" ] || die "no identities to export (run: ghless identity init)"
   # shellcheck disable=SC2086
   ( umask 077; cd "$GHLESS_DATA" && tar -czf "$out" $items ) || die "export failed"
@@ -48,7 +48,7 @@ import_ids() { # import_ids FILE: restores keys that do not exist yet
   if [ -n "$(find "$t" ! -type f ! -type d -print -quit)" ]; then
     die "archive holds links or special files; refusing to import it"
   fi
-  for f in radicle/keys radicle nostr.key arweave-wallet.json; do
+  for f in radicle/keys radicle/config.json radicle nostr.key arweave-wallet.json; do
     [ -e "$t/$f" ] || continue
     if [ -e "$GHLESS_DATA/$f" ]; then warn "$f already exists; kept"; else mkdir -p "$(dirname "$GHLESS_DATA/$f")" && cp -R "$t/$f" "$GHLESS_DATA/$f" && say "restored $f"; fi
   done
