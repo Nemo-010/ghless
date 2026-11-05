@@ -1,6 +1,7 @@
 #!/bin/sh
 # archive: keep a recoverable copy of the source you studied and of your changes.
-#   errand archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--public-url URL ...]
+#   errand archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--public-url URL ...] [--extra PATH ...]
+# --extra copies a file or directory (for example the zips you studied) into extra/.
 # Offline part (always): git bundles (upstream base, your changes, everything),
 # a patch series, a tarball of HEAD, SHA-256 manifest, recovery notes, one zip.
 # Network part (skipped by --no-net), each step independent and logged to
@@ -13,15 +14,17 @@ ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$ERRAND_HOME/libexec/common.sh"
 . "$ERRAND_HOME/libexec/spec.sh"
 
-DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""
+DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""; EXTRAS=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --name|--out|--public-url) [ $# -ge 2 ] || die "$1 needs a value"
-      case "$1" in --name) NAME="$2" ;; --out) OUT="$(abspath "$2")" ;; --public-url) PUBURLS="$PUBURLS $2" ;; esac
+    --name|--out|--public-url|--extra) [ $# -ge 2 ] || die "$1 needs a value"
+      case "$1" in --name) NAME="$2" ;; --out) OUT="$(abspath "$2")" ;; --public-url) PUBURLS="$PUBURLS $2" ;;
+        --extra) [ -e "$2" ] || die "no such file: $2"; EXTRAS="$EXTRAS
+$(abspath "$2")" ;; esac
       shift ;;
     --no-net) NET=0 ;;
     --deep) DEEP=1 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
   esac
@@ -83,6 +86,10 @@ If uncommitted.patch or untracked.tar.gz exist, the checkout had changes that we
 
 Verify first: sha256sum -c MANIFEST.sha256
 R
+if [ -n "$EXTRAS" ]; then
+  mkdir -p "$OUT/extra"
+  printf '%s\n' "$EXTRAS" | while IFS= read -r x; do [ -n "$x" ] && cp -a "$x" "$OUT/extra/"; done
+fi
 tsv="$OUT/NETWORK.tsv"; : > "$tsv"
 net() { printf '%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" >> "$tsv"; printf '%-10s %-6s %s\n' "$1" "$3" "$2"; }
 

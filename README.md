@@ -34,7 +34,7 @@ github lane first. The other lanes and the archive keep running regardless.
 
 ## Install details
 
-`./install [--core] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall] [--prefix DIR] [--bin DIR]`
+`./install [--core] [--no-tools] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall] [--prefix DIR] [--bin DIR]`
 
 1. System packages through the detected package manager (apt, apk, dnf, pacman): git, curl, python3, jq, unzip, zip, tar, gzip, xz, openssl, ssh, go. Missing ones only.
 2. Pinned binaries into `$ERRAND_PREFIX/bin` (default `~/.local/share/errand/bin`), each checked against a SHA-256 in `pins/pins.env`. A mismatch deletes the download and fails that tool. cfrs, Radicle, nak and ngit are release binaries; git-remote-arweave has no releases and is built with Go from a pinned commit.
@@ -42,7 +42,7 @@ github lane first. The other lanes and the archive keep running regardless.
 4. The skill is linked into `~/.claude/skills/errand-home` and `~/.agents/skills/errand-home`.
 5. `errand doctor --brief` as a check.
 
-`--core` installs packages and cfrs only. Lanes can be added later with `errand tools install radicle nak ngit arweave`.
+`--core` installs packages and cfrs only. `--no-tools` downloads no binaries at all. Lanes can be added later with `errand tools install radicle nak ngit arweave`.
 Hermetic scope: the binaries are pinned and checksummed. The Go toolchain and modules used for git-remote-arweave are verified by Go (go.sum, checksum database), not pinned by errand, and Go's state lives in `$ERRAND_PREFIX/go`. `tools install` re-checks the installed binary against the sha256 recorded at install time and reinstalls if it differs. Pins move only by editing `pins/pins.env`; `errand update-check` shows what upstream has.
 
 State: `$ERRAND_DATA` (default `~/.local/share/errand/data`) holds identities
