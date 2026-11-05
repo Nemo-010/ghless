@@ -12,7 +12,7 @@ mkdir -p "$GHLESS_DATA"; chmod 700 "$GHLESS_DATA" 2>/dev/null
 init() {
   export RAD_HOME="$GHLESS_DATA/radicle" RAD_PASSPHRASE=""
   if have rad && [ ! -f "$RAD_HOME/keys/radicle" ]; then rad auth --alias ghless >/dev/null 2>&1 && say "radicle identity created"; fi
-  if have nak && [ ! -s "$GHLESS_DATA/nostr.key" ]; then ( umask 077; nak key generate > "$GHLESS_DATA/nostr.key" ) && say "nostr key created"; fi
+  if [ ! -s "$GHLESS_DATA/nostr.key" ]; then ( umask 077; nostr_keygen > "$GHLESS_DATA/nostr.key" ) && say "nostr key created"; fi
   if have openssl && [ ! -s "$GHLESS_DATA/arweave-wallet.json" ]; then
     "$GHLESS_HOME/libexec/arweave-wallet.py" "$GHLESS_DATA/arweave-wallet.json" >/dev/null && say "arweave wallet created"
   fi
@@ -21,8 +21,8 @@ init() {
 show() {
   export RAD_HOME="$GHLESS_DATA/radicle" RAD_PASSPHRASE=""
   if have rad && [ -f "$RAD_HOME/keys/radicle" ]; then printf 'radicle  %s\n' "$(rad self --did 2>/dev/null)"; else echo "radicle  none"; fi
-  if [ -s "$GHLESS_DATA/nostr.key" ] && have nak; then
-    printf 'nostr    %s\n' "$(nak key public < "$GHLESS_DATA/nostr.key" | nak encode npub 2>/dev/null)"
+  if [ -s "$GHLESS_DATA/nostr.key" ]; then
+    printf 'nostr    %s\n' "$(nostr_npub "$GHLESS_DATA/nostr.key")"
   else echo "nostr    none"; fi
   if [ -s "$GHLESS_DATA/arweave-wallet.json" ]; then printf 'arweave  %s\n' "$("$GHLESS_HOME/libexec/arweave-wallet.py" --address "$GHLESS_DATA/arweave-wallet.json")"; else echo "arweave  none"; fi
   if github_authed; then printf 'github   %s\n' "$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)"; else echo "github   none"; fi

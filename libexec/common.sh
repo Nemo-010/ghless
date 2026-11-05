@@ -183,3 +183,16 @@ net_run() {
   esac
   "$@"
 }
+
+# nostr_keygen: a new secret key (hex) on stdout. nak when it runs, else Python
+# (nak is a glibc binary and cannot run on musl hosts such as Alpine).
+nostr_keygen() {
+  if nak --version >/dev/null 2>&1; then nak key generate
+  else python3 "$GHLESS_HOME/libexec/nostr-key.py" gen; fi
+}
+
+# nostr_npub FILE: the npub of the hex secret stored in FILE.
+nostr_npub() {
+  if nak --version >/dev/null 2>&1; then nak key public < "$1" | nak encode npub
+  else python3 "$GHLESS_HOME/libexec/nostr-key.py" npub < "$1"; fi
+}
