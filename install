@@ -5,6 +5,7 @@
 #             [--prefix DIR] [--bin DIR]
 #
 #   --core         system packages + cfrs only (skip radicle, nak, ngit, arweave)
+#   --no-tools     system packages and links only; download no binaries
 #   --no-gh-shim   do not put the gh-forge wrapper on PATH as `gh`
 #   --no-skill     do not register SKILL.md with agent skill directories
 #   --no-path      do not edit shell profiles
@@ -19,7 +20,7 @@ export ERRAND_HOME
 USER_DATA="${ERRAND_DATA:-}"; USER_WORK="${ERRAND_WORK:-}"
 . "$ERRAND_HOME/libexec/common.sh"
 
-CORE=0; GHSHIM=1; SKILL=1; EDITPATH=1; UNINSTALL=0
+CORE=0; GHSHIM=1; SKILL=1; EDITPATH=1; UNINSTALL=0; NOTOOLS=0; WARNED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix|--bin) [ $# -ge 2 ] || die "$1 needs a value" ;;
@@ -29,6 +30,7 @@ while [ $# -gt 0 ]; do
     --no-gh-shim) GHSHIM=0 ;;
     --no-skill) SKILL=0 ;;
     --no-path) EDITPATH=0 ;;
+    --no-tools) NOTOOLS=1 ;;
     --uninstall) UNINSTALL=1 ;;
     --prefix) shift; ERRAND_PREFIX="$(abspath "$1")"; ERRAND_DATA="${USER_DATA:-$ERRAND_PREFIX/data}"; ERRAND_WORK="${USER_WORK:-$ERRAND_DATA/work}"; PATH="$ERRAND_PREFIX/bin:$PATH"; export ERRAND_PREFIX ERRAND_DATA ERRAND_WORK PATH ;;
     --bin) shift; ERRAND_BIN="$(abspath "$1")"; export ERRAND_BIN ;;
@@ -71,16 +73,24 @@ profile_files() {
   done
 }
 
-strip_block() { # strip_block FILE: removes a complete marked block, never a half one
+strip_block() { # strip_block FILE: removes only a well-formed block (BEGIN, then END, no BEGIN between)
   [ -f "$1" ] || return 0
   grep -qxF "$MARK_BEGIN" "$1" || return 0
-  if ! grep -qxF "$MARK_END" "$1"; then
-    warn "$1 has a begin marker without an end marker; left untouched"
+  tmp="$1.errand.$$"
+  awk -v b="$MARK_BEGIN" -v e="$MARK_END" '
+    $0==b { if (open) printf "%s", buf; open=1; buf=$0 "\n"; next }
+    $0==e && open { open=0; buf=""; next }
+    open { buf = buf $0 "\n"; next }
+    { print }
+    END { if (open) { printf "%s", buf; exit 3 } }
+  ' "$1" > "$tmp"
+  rc_awk=$?
+  if [ $rc_awk -eq 3 ]; then
+    rm -f "$tmp"
+    warn "$1 has a begin marker with no end marker; left untouched"
     return 1
   fi
-  tmp="$1.errand.$$"
-  awk -v b="$MARK_BEGIN" -v e="$MARK_END" '$0==b{skip=1;next} $0==e{skip=0;next} !skip' "$1" > "$tmp" && cat "$tmp" > "$1"
-  rm -f "$tmp"
+  cat "$tmp" > "$1"; rm -f "$tmp"
 }
 
 if [ "$UNINSTALL" = 1 ]; then
@@ -91,7 +101,7 @@ if [ "$UNINSTALL" = 1 ]; then
   for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
     [ "$(readlink "$ERRAND_BIN/$b" 2>/dev/null)" = "$ERRAND_PREFIX/bin/$b" ] && rm -f "$ERRAND_BIN/$b" && say "removed $ERRAND_BIN/$b"
   done
-  profile_files | while IFS= read -r f; do strip_block "$f"; done
+  for f in $(profile_files); do strip_block "$f"; done
   rm -f "$ERRAND_PREFIX/env.sh"
   for d in $SKILL_DIRS; do
     [ -L "$d/errand-home" ] && rm -f "$d/errand-home" && say "removed $d/errand-home"
@@ -137,7 +147,9 @@ chmod +x "$ERRAND_HOME/install" "$ERRAND_HOME/bin/errand" "$ERRAND_HOME"/libexec
 mkdir -p "$ERRAND_PREFIX/bin" "$ERRAND_DATA" "$ERRAND_WORK" "$ERRAND_BIN"
 chmod 700 "$ERRAND_DATA" 2>/dev/null
 rc=0
-if [ "$CORE" = 1 ]; then
+if [ "$NOTOOLS" = 1 ]; then
+  :
+elif [ "$CORE" = 1 ]; then
   "$ERRAND_HOME/libexec/tools" install cfrs || rc=1
 else
   "$ERRAND_HOME/libexec/tools" install || rc=1
@@ -148,8 +160,13 @@ put_link() { # put_link NAME TARGET: never replaces a file that is not one of ou
   if [ -e "$ERRAND_BIN/$1" ] || [ -L "$ERRAND_BIN/$1" ]; then
     if [ ! -L "$ERRAND_BIN/$1" ]; then
       warn "$ERRAND_BIN/$1 is a real file; left in place (move it, then re-run)"
-      return 1
+      WARNED=1; return 1
     fi
+    case "$(readlink "$ERRAND_BIN/$1")" in
+      "$ERRAND_HOME"/*|"$ERRAND_PREFIX"/*) ;;
+      *) warn "$ERRAND_BIN/$1 is a link to $(readlink "$ERRAND_BIN/$1"); left in place"
+         WARNED=1; return 1 ;;
+    esac
   fi
   ln -sfn "$2" "$ERRAND_BIN/$1"
 }
@@ -176,8 +193,8 @@ case ":\$PATH:" in ":$ERRAND_BIN:"*) ;; *) PATH="$ERRAND_BIN:\$PATH" ;; esac
 export ERRAND_HOME ERRAND_PREFIX ERRAND_DATA PATH
 ENV
 if [ "$EDITPATH" = 1 ]; then
-  profile_files | while IFS= read -r f; do
-    strip_block "$f" || continue
+  for f in $(profile_files); do
+    strip_block "$f" || { rc=1; continue; }
     [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
     {
       printf '%s\n' "$MARK_BEGIN"
@@ -196,7 +213,10 @@ fi
 
 # 6. Prove it.
 "$ERRAND_HOME/bin/errand" doctor --brief || rc=1
-if [ "$rc" = 0 ]; then
+if [ "$rc" = 0 ] && [ "$WARNED" = 1 ]; then
+  say "installed with warnings (see above); the commands that were skipped keep their existing versions"
+  say "In this shell: . \"$ERRAND_PREFIX/env.sh\""
+elif [ "$rc" = 0 ]; then
   say "installed. In this shell: . \"$ERRAND_PREFIX/env.sh\"  (new login shells load it from ~/.profile)"
 else
   say "finished with errors; see the messages above. Re-running ./install is safe."

@@ -8,6 +8,7 @@
 set -u
 ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$ERRAND_HOME/libexec/common.sh"
+case "${1:-}" in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; -*) die "unknown option: $1" ;; esac
 OUT="${1:-$PWD/errand-home-$(cat "$ERRAND_HOME/VERSION").zip}"
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
 rm -f "$OUT"

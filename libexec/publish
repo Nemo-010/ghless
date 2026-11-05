@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-DIR="$(cd "${DIR:-.}" && pwd)"
+DIR="$(cd "${DIR:-.}" && pwd -P)"
 git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
 valid_name "$NAME" || NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^[-.]*//')
@@ -39,11 +39,12 @@ mkdir -p "$STAGE"
 if [ -f "$STAGE/.git/errand-source" ] && [ "$(cat "$STAGE/.git/errand-source")" != "$DIR" ]; then
   die "name '$NAME' already publishes $(cat "$STAGE/.git/errand-source"); pass --name to publish $DIR separately"
 fi
-printf '%s' "$DIR" > "$STAGE/.git/errand-source"
+[ -n "$(git -C "$DIR" status --porcelain)" ] && warn "$DIR has uncommitted changes; only HEAD is published"
 git -C "$STAGE" config user.name >/dev/null 2>&1 || git -C "$STAGE" config user.name errand
 git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user.email errand@users.noreply.invalid
 git_safe -C "$STAGE" fetch -q "$DIR" '+HEAD:refs/heads/incoming' || die "cannot read HEAD of $DIR"
 git -C "$STAGE" checkout -q -f -B main incoming
+printf '%s' "$DIR" > "$STAGE/.git/errand-source"
 HEADSHA=$(git -C "$STAGE" rev-parse --short HEAD)
 say "staging $NAME at $HEADSHA (lanes: $LANES)"
 
@@ -168,11 +169,11 @@ lane_arweave() {
   out=$(ARWEAVE_WALLET="$wallet" git -C "$STAGE" push arweave main 2>&1)
   if [ $? -eq 0 ]; then result arweave "$url" ok; return; fi
   case "$out" in
-    *402*|*"upload returned"*) ;;
+    *"returned 402"*) ;;
     *) result arweave "$url" "failed: $(printf '%s' "$out" | tail -n1 | cut -c1-200)"; return ;;
   esac
   say "arweave: pack is over the free tier (402); publishing as parts under 100 KiB each"
-  parts="$ERRAND_DATA/publish/$NAME.arweave-parts"
+  parts="$ERRAND_DATA/arweave-parts/$NAME"
   mkdir -p "$parts"
   names=$("$ERRAND_HOME/libexec/arweave-split.py" "$STAGE" "$parts" "$NAME" "$addr") ||
     { result arweave "$url" "failed: cannot split under the free tier"; return; }

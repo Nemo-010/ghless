@@ -44,7 +44,7 @@ tsv() { # url service status capture
 }
 
 run_one() { # script url service
-  line=$("$1" "$2" 2>/dev/null)
+  line=$(sh "$1" "$2" 2>/dev/null)
   url=$(printf '%s' "$line" | cut -f1)
   status=$(printf '%s' "$line" | cut -f2)
   cap=$(printf '%s' "$line" | cut -f3)
@@ -61,7 +61,6 @@ for svc in $(printf '%s' "$SERVICES" | tr ',' ' '); do
     urlscan)       script="$HERE/urlscan.sh" ;;
     *) echo "unknown service: $svc" >&2; continue ;;
   esac
-  [ -x "$script" ] || script="sh $script"
   grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
     run_one "$script" "$u" "$svc"
     sleep "$WAIT"

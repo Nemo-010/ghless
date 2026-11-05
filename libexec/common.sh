@@ -98,17 +98,23 @@ valid_name() {
   return 0
 }
 
-# export_tree SRC DEST: copy SRC to DEST without .git. For errand-home itself
-# only the shipped top-level entries are copied, so keys or state placed inside
-# the tree can never end up in a zip.
+# export_tree SRC DEST: copy SRC to DEST without .git or secrets.
+#  - a git checkout: tracked files only (git ls-files), so untracked or ignored
+#    keys can never travel;
+#  - errand-home itself, not a checkout: only the shipped top-level entries;
+#  - any other directory: everything except common secret file names.
 export_tree() {
   mkdir -p "$2"
-  if [ "$(cd "$1" && pwd)" = "$(cd "$ERRAND_HOME" && pwd)" ]; then
+  if git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1 && [ "$(git -C "$1" rev-parse --show-toplevel)" = "$(cd "$1" && pwd)" ]; then
+    git -C "$1" ls-files -z | (cd "$1" && tar --null -T - -cf -) | (cd "$2" && tar -xf -)
+  elif [ "$(cd "$1" && pwd)" = "$(cd "$ERRAND_HOME" && pwd)" ]; then
     for _e in install README.md VERSION .gitignore bin libexec components reference docs skill pins tests; do
-      [ -e "$1/$_e" ] && (cd "$1" && tar --exclude=__pycache__ --exclude='*.pyc' -cf - "$_e") | (cd "$2" && tar -xf -)
+      [ -e "$1/$_e" ] && (cd "$1" && tar --exclude=__pycache__ --exclude='*.pyc' --exclude=work \
+        --exclude='*.key' --exclude='*wallet*.json' --exclude='.env' --exclude='.env.*' -cf - "$_e") | (cd "$2" && tar -xf -)
     done
   else
-    (cd "$1" && tar --exclude=.git -cf - .) | (cd "$2" && tar -xf -)
+    (cd "$1" && tar --exclude=.git --exclude='*.key' --exclude='*.pem' --exclude='.env' --exclude='.env.*' \
+      --exclude='id_rsa*' --exclude='id_ed25519*' --exclude='*wallet*.json' -cf - .) | (cd "$2" && tar -xf -)
   fi
 }
 

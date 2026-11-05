@@ -68,7 +68,7 @@ def main():
     commit = git(src, "rev-parse", "HEAD").strip()
     names = [f"{name}-part{i + 1}" for i in range(len(groups))]
     listing = "\n".join(f"- arweave://{address}/{n}: {', '.join(g)}" for n, g in zip(names, groups))
-    manifest = (f"# {name}: part {{k}} of {len(groups)}\n\n"
+    manifest = (f"# {name}: part @K@ of {len(groups)}\n\n"
                 f"Source commit: {commit}\n\nParts:\n{listing}\n\n"
                 "Reassemble: clone every part and copy the top-level entries of each into one directory.\n"
                 "The full history lives on the other lanes (radicle, nostr) when they succeeded.\n")
@@ -86,9 +86,12 @@ def main():
             subprocess.run(["git", "-C", dest, "init", "-q", "-b", "main"], check=True)
         tar = git(src, "archive", "--format=tar", "HEAD", "--", *group, data=True)
         with tarfile.open(fileobj=io.BytesIO(tar)) as tf:
-            tf.extractall(dest, filter="data")
+            try:
+                tf.extractall(dest, filter="data")
+            except TypeError:
+                tf.extractall(dest)
         with open(os.path.join(dest, "PARTS.md"), "w") as fh:
-            fh.write(manifest.format(k=i + 1))
+            fh.write(manifest.replace("@K@", str(i + 1)))
         subprocess.run(["git", "-C", dest, "add", "-A"], check=True)
         if subprocess.run(["git", "-C", dest, "diff", "--cached", "--quiet"]).returncode != 0:
             subprocess.run(["git", "-C", dest, *ident, "commit", "-q", "-m",

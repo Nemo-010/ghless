@@ -33,6 +33,10 @@ if [ -z "$DIR" ]; then
   if [ "$S_GITHUB" = 1 ]; then DIR="$ERRAND_WORK/${S_OWNER}__${S_REPO}"
   else DIR="$ERRAND_WORK/$(basename "${S_URL%.git}")"; fi
 fi
+case "$S_URL" in
+  /*|./*|../*) [ -d "$S_URL" ] && S_URL=$(cd "$S_URL" && pwd) ;;
+esac
+DIR=$(abspath "$DIR")
 mkdir -p "$(dirname "$DIR")"
 
 is_sha() { case "$1" in *[!0-9a-f]*|"") return 1 ;; esac; [ ${#1} -ge 7 ] && [ ${#1} -le 40 ]; }

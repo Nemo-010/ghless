@@ -63,14 +63,15 @@ warn() { printf 'spn2: %s\n' "$1" >&2; }
 
 # --- one authenticated capture -------------------------------------------------
 AUTHFILE=""
+BODYTMP=$(mktemp "${TMPDIR:-/tmp}/spn2-body.XXXXXX") || exit 1
+trap 'rm -f "$AUTHFILE" "$BODYTMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 ensure_authfile() {
   [ -n "$AUTHFILE" ] && return 0
   AUTHFILE=$(mktemp "${TMPDIR:-/tmp}/spn2-auth.XXXXXX") || exit 1
   chmod 600 "$AUTHFILE"
   printf 'Authorization: LOW %s\n' "$AUTH" > "$AUTHFILE"
-  trap 'rm -f "$AUTHFILE"' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
 }
 
 capture_auth() {
@@ -122,7 +123,7 @@ d=json.load(sys.stdin); print(str(d.get("message",""))[:120])')
 # --- one anonymous capture -----------------------------------------------------
 capture_anon() {
   u="$1"
-  hdr=$(curl -sS --max-time 90 -o /tmp/spn2.$$ -D - \
+  hdr=$(curl -sS --max-time 90 -o "$BODYTMP" -D - \
     "https://web.archive.org/save/$u" 2>/dev/null | tr -d '\r')
   loc=$(printf '%s' "$hdr" | grep -i '^location:' | head -n1 | cut -d' ' -f2-)
   ts=$(printf '%s' "$hdr" | grep -i '^x-ts:' | head -n1 | cut -d' ' -f2)
@@ -135,14 +136,14 @@ capture_anon() {
       sleep 90; log "$u" "rate-limited" "" ;;
     200)
       # HTML answer: either the daily per-URL cap page or an "already captured" notice
-      if grep -q "already captured 5 times today" /tmp/spn2.$$ 2>/dev/null; then
+      if grep -q "already captured 5 times today" "$BODYTMP" 2>/dev/null; then
         log "$u" "daily-url-cap" "5 captures of this URL today; try tomorrow"
       else
         log "$u" "already-captured" "$(printf '%s' "$hdr" | grep -i '^x-location:' | head -n1 | cut -d' ' -f2-)"
       fi ;;
     *) log "$u" "http-$ts" "" ;;
   esac
-  rm -f /tmp/spn2.$$
+  rm -f "$BODYTMP"
 }
 
 # --- main ----------------------------------------------------------------------
@@ -152,10 +153,13 @@ if [ -z "$FILE" ]; then
   exit 0
 fi
 
-[ "$FILE" = "-" ] && LIST=/tmp/spn2-list.$$ || LIST="$FILE"
-[ "$FILE" = "-" ] && cat > "$LIST"
+LIST="$FILE"
+if [ "$FILE" = "-" ]; then
+  LIST=$(mktemp "${TMPDIR:-/tmp}/spn2-list.XXXXXX") || exit 1
+  trap 'rm -f "$LIST" "$AUTHFILE" "$BODYTMP"' EXIT
+  cat > "$LIST"
+fi
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
   [ -n "$AUTH" ] && capture_auth "$u" || capture_anon "$u"
   sleep "$SLEEP"
 done
-[ "$FILE" = "-" ] && rm -f "$LIST"

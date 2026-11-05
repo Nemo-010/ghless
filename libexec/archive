@@ -54,7 +54,7 @@ G bundle create "$OUT/full.bundle" --all >/dev/null 2>&1 || die "cannot bundle $
 G archive --format=tar.gz --prefix="$NAME/" -o "$OUT/head.tar.gz" HEAD
 if [ -n "$(G status --porcelain)" ]; then
   warn "uncommitted changes found: saved as uncommitted.patch and untracked.tar.gz (commit them to keep them in the bundles)"
-  G diff HEAD > "$OUT/uncommitted.patch"
+  G diff --binary HEAD > "$OUT/uncommitted.patch"
   G ls-files --others --exclude-standard -z | (cd "$DIR" && tar --null -T - -czf "$OUT/untracked.tar.gz" 2>/dev/null)
 fi
 if [ "$HAS_BASE" = 1 ]; then

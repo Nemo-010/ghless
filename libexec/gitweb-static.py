@@ -50,6 +50,10 @@ def build_repo(out, name, src):
     if os.path.isdir(bare):
         git("fetch", "-q", "--force", "--tags", src, "+refs/heads/*:refs/heads/*", cwd=bare)
         git("remote", "remove", "origin", cwd=bare, check=False)
+        try:
+            os.remove(os.path.join(bare, "FETCH_HEAD"))
+        except FileNotFoundError:
+            pass
     else:
         git("clone", "-q", "--bare", src, bare)
         git("remote", "remove", "origin", cwd=bare, check=False)
@@ -68,8 +72,8 @@ def build_repo(out, name, src):
     with open(zip_path, "wb") as fh:
         fh.write(git("archive", "--format=zip", f"--prefix={name}/", "HEAD", cwd=bare))
 
-    files = git("ls-tree", "-r", "-z", "--name-only", "HEAD", cwd=bare).decode().split("\0")
-    files = [f for f in files if f]
+    entries = git("ls-tree", "-r", "-z", "HEAD", cwd=bare).decode().split("\0")
+    files = [e.split("\t", 1)[1] for e in entries if e and e.split(" ", 1)[0] != "160000"]
     rows = []
     for f in files:
         if f.startswith("/") or ".." in f.split("/"):
@@ -118,9 +122,13 @@ def main():
             print(f"refused spec {spec!r}: name must match {NAME_RE.pattern}", file=sys.stderr)
             failed.append(name)
             continue
+        existed = os.path.isdir(os.path.join(out, f"{name}.git"))
         try:
             items.append(build_repo(out, name, src))
         except (subprocess.CalledProcessError, SystemExit) as exc:
+            if not existed:
+                shutil.rmtree(os.path.join(out, f"{name}.git"), ignore_errors=True)
+                shutil.rmtree(os.path.join(out, name), ignore_errors=True)
             detail = exc.stderr.decode(errors="replace").strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
             print(f"{name}: not published: {detail}", file=sys.stderr)
             failed.append(name)

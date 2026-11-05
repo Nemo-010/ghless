@@ -107,7 +107,7 @@ check "bulk-archive stdin leaves no temp file" bulk_case
 
 lane_refuses() { # a publish lane must not report ok without its tool
   PATH="/usr/bin:/bin" ERRAND_PREFIX="$T/empty" "$ROOT/bin/errand" publish "$FX" --name t --lanes radicle,nostr,arweave >"$T/pub.out" 2>&1
-  [ $? -ne 0 ] && ! grep -q ' ok ' "$T/pub.out"
+  [ $? -ne 0 ] && ! grep -q ' ok ' "$T/pub.out" && [ "$(grep -c 'not installed' "$T/pub.out")" -ge 3 ]
 }
 check "publish exits non-zero when no lane can run" lane_refuses
 
@@ -124,6 +124,68 @@ split_case() {
   done
 }
 check "arweave split parts reassemble to the same files" split_case
+
+fetch_pos_case() {
+  "$ROOT/bin/errand" fetch "file://$FX" "$T/fp" >/dev/null 2>&1 || return 1
+  [ "$(git -C "$T/fp" config errand.route)" = direct ] &&
+  [ "$(git -C "$T/fp" rev-parse errand/source-base)" = "$(git -C "$FX" rev-parse HEAD)" ] &&
+  [ "$(git -C "$T/fp" branch --show-current)" = errand/work ] &&
+  "$ROOT/bin/errand" fetch "file://$FX" "$T/fp" >/dev/null 2>&1
+}
+check "fetch clones, tags errand/source-base, opens errand/work, re-run is a no-op" fetch_pos_case
+
+offline_install_case() {
+  H3="$T/home3"; mkdir -p "$H3/.local/bin"
+  printf 'top=1\n# >>> errand-home >>>\nold\n# <<< errand-home <<<\nmid=2\n# >>> errand-home >>>\nstale=3\nlast=4\n' > "$H3/.profile"
+  printf '# mine' > "$H3/.zshrc"
+  ln -s /bin/true "$H3/.local/bin/gh"
+  HOME="$H3" ERRAND_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill >"$T/oi.out" 2>&1
+  [ $? -ne 0 ] || { echo "install exited 0 despite an unterminated block"; return 1; }
+  grep -q '^last=4$' "$H3/.profile" && grep -q '^stale=3$' "$H3/.profile" || { echo "profile lines were lost"; return 1; }
+  [ "$(readlink "$H3/.local/bin/gh")" = /bin/true ] || { echo "foreign gh link was replaced"; return 1; }
+  HOME="$H3" ERRAND_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1
+  H4="$T/home4"; mkdir -p "$H4"; printf '# mine' > "$H4/.profile"
+  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  sh -n "$H4/.profile" && [ "$(grep -c '>>> errand-home' "$H4/.profile")" = 1 ] && grep -q '^# mine$' "$H4/.profile" &&
+  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1 &&
+  [ "$(cat "$H4/.profile")" = "# mine" ] && [ ! -e "$H4/.local/bin/errand" ]
+}
+check "install: profile edits are safe, idempotent and reversible; foreign links kept" offline_install_case
+
+pack_ignored_case() {
+  git clone -q "$ROOT" "$T/pk2" 2>/dev/null || return 1
+  cp -a "$ROOT/." "$T/pk2/" 2>/dev/null; rm -rf "$T/pk2/.git"; git clone -q "$ROOT" "$T/pk3" 2>/dev/null
+  (cd "$T/pk3" && git ls-files -z | head -c0)
+  mkdir -p "$T/pk3/components/ghre/work"; echo K > "$T/pk3/components/ghre/work/nostr.key"; echo K > "$T/pk3/tests/arweave-wallet.json"
+  ERRAND_HOME="$T/pk3" "$T/pk3/bin/errand" pack "$T/pk3.zip" >/dev/null 2>&1 || return 1
+  ! unzip -l "$T/pk3.zip" | grep -qE 'nostr.key|arweave-wallet.json'
+  [ $? -eq 0 ] || return 1
+  ERRAND_HOME="$T/pk2" "$T/pk2/bin/errand" pack "$T/pk2.zip" >/dev/null 2>&1 || return 1
+  ! unzip -l "$T/pk2.zip" | grep -qE 'nostr.key|arweave-wallet.json'
+}
+check "pack never ships untracked or ignored key files (git and non-git trees)" pack_ignored_case
+
+binary_case() {
+  B="$T/binrepo"; mkdir "$B"; git -C "$B" init -q -b main; head -c 2000 /dev/urandom > "$B/b.dat"; git -C "$B" add -A
+  git -C "$B" -c user.name=t -c user.email=t@t commit -qm b
+  cp "$B/b.dat" "$T/b.orig"; head -c 2000 /dev/urandom > "$B/b.dat"; cp "$B/b.dat" "$T/b.new"
+  "$ROOT/bin/errand" archive "$B" --no-net >"$T/bin.out" 2>&1 || return 1
+  d=$(ls -d "$ERRAND_DATA"/archive/binrepo-*/ | head -n1)
+  git clone -q "$d/full.bundle" "$T/binrest" 2>/dev/null && git -C "$T/binrest" apply "$d/uncommitted.patch" && cmp -s "$T/binrest/b.dat" "$T/b.new"
+}
+check "archive keeps uncommitted binary changes" binary_case
+
+gitweb_rerun_case() {
+  SM="$T/smrepo"; mkdir "$SM"; git -C "$SM" init -q -b main; echo x > "$SM/f"; git -C "$SM" add f
+  git -C "$SM" update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,sub
+  git -C "$SM" -c user.name=t -c user.email=t@t commit -qm sm
+  python3 "$ROOT/libexec/gitweb-static.py" "$T/pub2" sm="$SM" >/dev/null 2>&1
+  python3 "$ROOT/libexec/gitweb-static.py" "$T/pub2" sm="$SM" >/dev/null 2>&1
+  [ -f "$T/pub2/sm/index.html" ] || return 1
+  ! grep -rIl "$T" "$T/pub2/sm.git" 2>/dev/null | grep -q .
+}
+check "gitweb tolerates submodule entries, re-runs, and leaks no local path" gitweb_rerun_case
 
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
