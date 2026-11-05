@@ -98,7 +98,7 @@ lane_radicle() {
   tmp="$RAD_HOME/config.json.tmp"
   jq --argjson s "$arr" '.preferredSeeds = $s | .node.connect = $s | .node.peers = {"type":"static"}' \
     "$RAD_HOME/config.json" > "$tmp" && mv "$tmp" "$RAD_HOME/config.json"
-  setsid -f rad node start --foreground > "$RAD_HOME/node.stderr.log" 2>&1 < /dev/null
+  detach_run "$RAD_HOME/node.stderr.log" rad node start --foreground
   i=0; while [ $i -lt 20 ] && ! rad node status >/dev/null 2>&1; do sleep 1; i=$((i + 1)); done
   (
     cd "$STAGE" || exit 1

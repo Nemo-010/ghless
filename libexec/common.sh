@@ -196,3 +196,13 @@ nostr_npub() {
   if nak --version >/dev/null 2>&1; then nak key public < "$1" | nak encode npub
   else python3 "$GHLESS_HOME/libexec/nostr-key.py" npub < "$1"; fi
 }
+
+# detach_run LOG CMD...: start CMD in its own session, output to LOG, surviving
+# this shell. `setsid -f` is not portable (busybox lacks -f), so the command is
+# backgrounded and started with plain setsid, or nohup when setsid is missing.
+detach_run() {
+  _log="$1"; shift
+  if have setsid; then setsid "$@" > "$_log" 2>&1 < /dev/null &
+  else nohup "$@" > "$_log" 2>&1 < /dev/null &
+  fi
+}
