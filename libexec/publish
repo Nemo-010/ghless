@@ -115,17 +115,19 @@ lane_radicle() {
     *) result radicle "-" "failed: push"; return ;;
   esac
   rid=$(cd "$STAGE" && rad inspect --rid 2>/dev/null)
+  want_head=$(git -C "$STAGE" rev-parse HEAD)
   have_copy=""; waited=0
   while [ $waited -lt 180 ]; do
     have_copy=""
     for host in $seedhosts; do
-      [ "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://$host/api/v1/repos/$rid")" = 200 ] && have_copy="$have_copy $host"
+      seen=$(curl -s -m 15 "https://$host/api/v1/repos/$rid" | jq -r '.payloads["xyz.radicle.project"].meta.head // empty' 2>/dev/null)
+      [ "$seen" = "$want_head" ] && have_copy="$have_copy $host"
     done
     [ -n "$have_copy" ] && break
     sleep 10; waited=$((waited + 10))
   done
   if [ -n "$have_copy" ]; then result radicle "$rid (copy on:$have_copy)" ok
-  else result radicle "$rid" "failed: no seed holds it after 180s (node log: $RAD_HOME/node.stderr.log)"; fi
+  else result radicle "$rid" "failed: no seed serves the pushed commit after 180s (node log: $RAD_HOME/node.stderr.log)"; fi
 }
 
 lane_nostr() {
