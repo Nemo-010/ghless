@@ -272,7 +272,7 @@ copies_case() {
   echo zipdata > "$T/fx-archive.zip"
   python3 "$ROOT/libexec/gitweb-static.py" --ledger "$T/led2.tsv" --download "fx=$T/fx-archive.zip" "$T/pub3" fx="$FX" || return 1
   pg="$T/pub3/fx/index.html"
-  for want in 'api/v1/repos/rad:zABC123' 'gitworkshop.dev/npubXYZ/relay.example/fx' 'git clone arweave://ADDR/fx-part2' 'browse/origin/?origin_url=' 'web.archive.org/web/2026' "href='downloads/fx-archive.zip'"; do
+  for want in 'api/v1/repos/rad:zABC123' 'gitworkshop.dev/npubXYZ/relay.example/fx' 'git clone arweave://ADDR/fx-part2' 'browse/origin/?origin_url=' 'web.archive.org/web/2026' 'href="downloads/fx-archive.zip"'; do
     grep -qF "$want" "$pg" || { echo "missing $want"; return 1; }
   done
   [ -f "$T/pub3/fx/downloads/fx-archive.zip" ] && grep -qF 'other copies' "$T/pub3/index.html"
