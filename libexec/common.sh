@@ -7,7 +7,9 @@ if [ -z "${HOME:-}" ]; then
   [ -n "$HOME" ] || { echo "ghless: error: HOME is not set" >&2; exit 1; }
   export HOME
 fi
-GHLESS_PREFIX="${GHLESS_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/ghless}"
+# XDG_DATA_HOME is honoured only inside $HOME, so a different HOME is always an isolated install.
+case "${XDG_DATA_HOME:-}" in "$HOME"/*) _xdg="$XDG_DATA_HOME" ;; *) _xdg="$HOME/.local/share" ;; esac
+GHLESS_PREFIX="${GHLESS_PREFIX:-$_xdg/ghless}"
 GHLESS_DATA="${GHLESS_DATA:-$GHLESS_PREFIX/data}"
 GHLESS_BIN="${GHLESS_BIN:-$HOME/.local/bin}"
 GHLESS_WORK="${GHLESS_WORK:-$GHLESS_DATA/work}"

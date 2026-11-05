@@ -1,7 +1,7 @@
 #!/bin/sh
 # install: one-time, idempotent setup of ghless.
 #
-#   ./install [--core] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall]
+#   ./install [--core] [--no-tools] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall]
 #             [--prefix DIR] [--bin DIR]
 #
 #   --core         system packages + cfrs only (skip radicle, nak, ngit, arweave)
@@ -95,11 +95,13 @@ strip_block() { # strip_block FILE: removes only a well-formed block (BEGIN, the
 
 if [ "$UNINSTALL" = 1 ]; then
   for n in $LINKS gh; do
-    t=$(link_target "$n")
-    [ "$(readlink "$GHLESS_BIN/$n" 2>/dev/null)" = "$t" ] && rm -f "$GHLESS_BIN/$n" && say "removed $GHLESS_BIN/$n"
+    t=$(link_target "$n"); cur=$(readlink "$GHLESS_BIN/$n" 2>/dev/null) || continue
+    # ours: the current checkout, or any other checkout (moved or deleted) with the same inner path
+    case "$cur" in "$t"|*"${t#"$GHLESS_HOME"}") rm -f "$GHLESS_BIN/$n" && say "removed $GHLESS_BIN/$n" ;; esac
   done
   for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
-    [ "$(readlink "$GHLESS_BIN/$b" 2>/dev/null)" = "$GHLESS_PREFIX/bin/$b" ] && rm -f "$GHLESS_BIN/$b" && say "removed $GHLESS_BIN/$b"
+    cur=$(readlink "$GHLESS_BIN/$b" 2>/dev/null) || continue
+    case "$cur" in "$GHLESS_PREFIX/bin/$b"|*/ghless/bin/$b) rm -f "$GHLESS_BIN/$b" && say "removed $GHLESS_BIN/$b" ;; esac
   done
   for f in $(profile_files); do strip_block "$f"; done
   rm -f "$GHLESS_PREFIX/env.sh"
@@ -110,6 +112,11 @@ if [ "$UNINSTALL" = 1 ]; then
   exit 0
 fi
 
+say "prefix: $GHLESS_PREFIX  data: $GHLESS_DATA  links: $GHLESS_BIN"
+case "$GHLESS_PREFIX" in
+  "$HOME"/*) ;;
+  *) warn "the prefix is outside \$HOME (XDG_DATA_HOME or GHLESS_PREFIX is set): installs and keys are shared with every user of that path. For an isolated trial: GHLESS_PREFIX=\$HOME/ghless-prefix ./install" ;;
+esac
 # 1. System packages. The package manager is detected, never assumed.
 need=""
 for pair in git:git curl:curl python3:python3 jq:jq unzip:unzip zip:zip tar:tar gzip:gzip xz:xz-utils sha256sum:coreutils; do
@@ -181,19 +188,23 @@ if [ -d "$OLD_PREFIX/data" ] && [ ! -e "$GHLESS_DATA/nostr.key" ] && [ "$OLD_PRE
 fi
 
 # 3. Commands on PATH.
-put_link() { # put_link NAME TARGET: never replaces a file that is not one of our links
-  if [ -e "$GHLESS_BIN/$1" ] || [ -L "$GHLESS_BIN/$1" ]; then
-    if [ ! -L "$GHLESS_BIN/$1" ]; then
-      warn "$GHLESS_BIN/$1 is a real file; left in place (move it, then re-run)"
+put_link() { # put_link NAME TARGET: only ever replaces links that are ours or dangling
+  l="$GHLESS_BIN/$1"
+  if [ -e "$l" ] || [ -L "$l" ]; then
+    if [ ! -L "$l" ]; then
+      warn "$l is a real file; left in place (move it, then re-run)"
       WARNED=1; return 1
     fi
-    case "$(readlink "$GHLESS_BIN/$1")" in
-      "$GHLESS_HOME"/*|"$GHLESS_PREFIX"/*) ;;
-      *) warn "$GHLESS_BIN/$1 is a link to $(readlink "$GHLESS_BIN/$1"); left in place"
-         WARNED=1; return 1 ;;
-    esac
+    cur=$(readlink "$l"); inner="${2#"$GHLESS_HOME"}"; ours=0
+    case "$cur" in "$GHLESS_HOME"/*|"$GHLESS_PREFIX"/*) ours=1 ;; esac
+    [ "$ours" = 0 ] && [ "$inner" != "$2" ] && case "$cur" in *"$inner") ours=1; say "relinking $l (it pointed at another checkout: $cur)" ;; esac
+    [ "$ours" = 0 ] && [ ! -e "$cur" ] && { ours=1; say "relinking $l (dangling link to $cur)"; }
+    if [ "$ours" = 0 ]; then
+      warn "$l is a link to $cur; left in place"
+      WARNED=1; return 1
+    fi
   fi
-  ln -sfn "$2" "$GHLESS_BIN/$1"
+  ln -sfn "$2" "$l"
 }
 for n in $LINKS; do
   t=$(link_target "$n")

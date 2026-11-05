@@ -38,6 +38,7 @@ if [ "$DRY" = 1 ]; then
   git -C "$DIR" rev-parse --verify -q HEAD >/dev/null || die "$DIR has no commits to publish"
   say "dry run: would publish $DIR (HEAD $(git -C "$DIR" rev-parse --short HEAD)) as '$NAME' to: $LANES"
   ready=0
+  case ",$LANES," in *,github,*) ;; *) echo "github   skipped: no working token (a login adds this lane automatically)" ;; esac
   for l in $(printf '%s' "$LANES" | tr ',' ' '); do
     case "$l" in
       github) if github_authed; then echo "github   ready"; ready=$((ready + 1)); else echo "github   would be skipped: no working token"; fi ;;
@@ -207,6 +208,7 @@ lane_arweave() {
 }
 
 for lane in $(printf '%s' "$LANES" | tr ',' ' '); do
+  say "lane $lane: starting (radicle waits for seeds, up to 3 minutes)"
   case "$lane" in
     github) lane_github ;; radicle) lane_radicle ;; nostr) lane_nostr ;; arweave) lane_arweave ;;
     *) warn "unknown lane: $lane" ;;

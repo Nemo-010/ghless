@@ -85,6 +85,8 @@ class Context:
         self._repo = None
         self._names = {}
         self._name_budget = 40
+        import threading
+        self._lock = threading.Lock()
 
     def repo(self, explicit=None, required=True):
         from . import repoctx
@@ -98,18 +100,23 @@ class Context:
     def resolve_names(self, logins):
         """Look up display names once per login; missing names stay empty."""
         found = {}
-        for login in dict.fromkeys(logins):
-            if login:
-                found[login] = self.display_name(login)
+        todo = [l for l in dict.fromkeys(logins) if l]
+        # Independent lookups run together; the request budget is still honoured
+        # (display_name spends it under a lock) and the answers do not change.
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for login, name in zip(todo, pool.map(self.display_name, todo)):
+                found[login] = name
         return found
 
     def display_name(self, login):
         from .errors import GhError
-        if login in self._names:
-            return self._names[login]
-        if self._name_budget <= 0:
-            return ""
-        self._name_budget -= 1
+        with self._lock:
+            if login in self._names:
+                return self._names[login]
+            if self._name_budget <= 0:
+                return ""
+            self._name_budget -= 1
         name = ""
         try:
             doc = self.backend.data("users/%s" % login)

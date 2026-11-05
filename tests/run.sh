@@ -245,6 +245,20 @@ hostile_import_case() {
 }
 check "identity import refuses links; relative export lands in the cwd" hostile_import_case
 
+relocate_case() {
+  H6="$T/home6"; mkdir -p "$H6"; mkdir "$T/ra"; (cd "$ROOT" && git ls-files -z | tar --null -T - -cf -) | (cd "$T/ra" && tar -xf -)
+  e() { env -u GHLESS_DATA -u GHLESS_WORK HOME="$H6" GHLESS_PREFIX="$H6/p" "$@"; }
+  (cd "$T/ra" && e ./install --no-tools --no-skill) >/dev/null 2>&1 || return 1
+  mv "$T/ra" "$T/rb"
+  [ ! -e "$H6/.local/bin/ghless" ] || return 1
+  (cd "$T/rb" && e ./install --no-tools --no-skill) >/dev/null 2>&1 || return 1
+  [ "$(e "$H6/.local/bin/ghless" version)" = "$(cat "$ROOT/VERSION")" ] || return 1
+  mv "$T/rb" "$T/rc"; rm -rf "$T/rc/libexec/__pycache__"
+  (cd "$T/rc" && e ./install --uninstall) >/dev/null 2>&1
+  [ -z "$(ls -A "$H6/.local/bin")" ]
+}
+check "install repairs links after the checkout is moved; uninstall removes them all" relocate_case
+
 migrate_case() {
   H5="$T/home5"; mkdir -p "$H5/.local/bin" "$H5/.local/share/errand/data" "$T/errand-home/bin"
   echo k > "$H5/.local/share/errand/data/nostr.key"; : > "$T/errand-home/bin/errand"

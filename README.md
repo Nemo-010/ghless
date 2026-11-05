@@ -6,11 +6,12 @@ change, publish and archive code. It melds five earlier pieces (see
 
 ```sh
 ./install                                    # once; idempotent; sudo only if system packages are missing
-. ~/.local/share/ghless/env.sh               # this shell (login shells load it from ~/.profile)
+. <prefix>/env.sh                            # the installer prints the exact path; login shells load it from ~/.profile
 ghless doctor                                # what works on this host
 ```
 
-Keep the checkout: the links and the profile block point into it.
+Keep the checkout: the links and the profile block point into it. If you move it, run `./install` again from the new place; stale links are relinked.
+Isolated trial (own prefix, nothing shared): `GHLESS_PREFIX=$HOME/ghless-prefix ./install`. The prefix is `$XDG_DATA_HOME/ghless` when that variable points inside `$HOME`, else `~/.local/share/ghless`, so a different `HOME` is always a separate install; the installer prints it.
 
 Fetch the repo from a zip, a decentralized host, or GitHub, run `./install`
 once, and the rest needs nothing else.
