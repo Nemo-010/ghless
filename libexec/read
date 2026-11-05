@@ -1,0 +1,33 @@
+#!/bin/sh
+# read: print one file, or the README, of a public repo without cloning.
+#   errand read SPEC [PATH] [REF]
+# Routes: raw.githubusercontent.com, the same through the broker, the forge API.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+. "$ERRAND_HOME/libexec/spec.sh"
+
+[ $# -ge 1 ] || die "usage: errand read SPEC [PATH] [REF]"
+parse_spec "$1" || die "cannot understand: $1"
+[ "$S_GITHUB" = 1 ] || die "read supports github.com specs; use errand fetch for other hosts"
+P="${2:-$S_PATH}"; REF="${3:-$S_REF}"
+FORGE=https://forge.web.pkgforge.dev/github
+
+if [ -z "$P" ]; then
+  u="$FORGE/repos/$S_OWNER/$S_REPO/readme"
+  [ -n "$REF" ] && u="$u?ref=$REF"
+  curl -fsSL -m 60 -H 'Accept: application/vnd.github.raw' "$u" && exit 0
+  curl -fsSL -m 60 -H 'Accept: application/vnd.github.raw' "https://api.github.com/repos/$S_OWNER/$S_REPO/readme${REF:+?ref=$REF}" && exit 0
+  die "cannot read README of $S_OWNER/$S_REPO"
+fi
+
+if [ -z "$REF" ]; then
+  REF=$(curl -fsS -m 30 "https://api.github.com/repos/$S_OWNER/$S_REPO" 2>/dev/null | jq -r .default_branch 2>/dev/null)
+  case "$REF" in ""|null) REF=$(curl -fsS -m 30 "$FORGE/repos/$S_OWNER/$S_REPO" 2>/dev/null | jq -r .default_branch 2>/dev/null) ;; esac
+  case "$REF" in ""|null) REF=HEAD ;; esac
+fi
+raw="https://raw.githubusercontent.com/$S_OWNER/$S_REPO/$REF/$P"
+curl -fsSL -m 60 "$raw" 2>/dev/null && exit 0
+curl -fsSL -m 60 "$BROKER/$raw" 2>/dev/null && exit 0
+curl -fsSL -m 60 -H 'Accept: application/vnd.github.raw' "$FORGE/repos/$S_OWNER/$S_REPO/contents/$P?ref=$REF" 2>/dev/null && exit 0
+die "cannot read $S_OWNER/$S_REPO:$P@$REF by any route"

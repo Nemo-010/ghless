@@ -1,0 +1,25 @@
+#!/bin/sh
+# pack: a zip of errand-home itself, ready to share.
+#   errand pack [OUT.zip]
+# Contents are `git archive HEAD` when errand-home is a git checkout (so only
+# tracked files, with execute bits), else the directory minus caches. Writes
+# OUT.zip.sha256 beside it.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+OUT="${1:-$PWD/errand-home-$(cat "$ERRAND_HOME/VERSION").zip}"
+case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
+rm -f "$OUT"
+if git -C "$ERRAND_HOME" rev-parse --git-dir >/dev/null 2>&1 && [ -z "$(git -C "$ERRAND_HOME" status --porcelain)" ]; then
+  git -C "$ERRAND_HOME" archive --format=zip --prefix=errand-home/ -o "$OUT" HEAD
+else
+  [ -d "$ERRAND_HOME/.git" ] && warn "working tree has uncommitted changes; packing the directory as it is"
+  t=$(mktemp -d "${TMPDIR:-/tmp}/errand-pack.XXXXXX")
+  mkdir "$t/errand-home"
+  (cd "$ERRAND_HOME" && tar --exclude=__pycache__ --exclude='*.pyc' --exclude=.git -cf - .) | (cd "$t/errand-home" && tar -xf -)
+  zip_dir "$t/errand-home" "$OUT"
+  rm -rf "$t"
+fi
+(cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" > "$OUT.sha256")
+say "wrote $OUT ($(du -h "$OUT" | cut -f1))"
+echo "$OUT"

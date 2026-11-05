@@ -1,0 +1,7 @@
+# Tor onion Gitea, anonymous clone
+$ curl -s -x socks5h://127.0.0.1:9050 http://it7otdanqu7ktntxzm427cba6i53w6wlanlh23v5i3siqmos47pzhvyd.onion/api/v1/version
+{"version":"28.2.0"}
+$ curl -s -x socks5h://127.0.0.1:9050 .../user/sign_up   # open form: username/email/password, no captcha observed
+$ git -c http.proxy=socks5h://127.0.0.1:9050 -c http.version=HTTP/1.1 \
+    clone --depth 1 http://it7otdanqu7ktntxzm427cba6i53w6wlanlh23v5i3siqmos47pzhvyd.onion/milahu9/alchi darktea-clone
+# -> complete checkout (_config.yml, deutsch, english, src, ...)

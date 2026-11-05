@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# pack-patches <patch-dir>
+#
+# Store every .patch in a recovery record as gzipped text. Diffs compress by
+# roughly ten times, so the whole record fits comfortably in a repository while
+# staying lossless: `gunzip` gives back the exact bytes git produced.
+set -euo pipefail
+
+dir="${1:?usage: pack-patches <patch-dir>}"
+[ -d "$dir" ] || { echo "no such directory: $dir" >&2; exit 1; }
+
+shopt -s nullglob
+for patch in "$dir"/*.patch; do
+  gzip -9 -c "$patch" >"$patch.gz"
+  rm "$patch"
+done
+printf 'gzipped %s patches in %s\n' "$(ls "$dir"/*.patch.gz 2>/dev/null | wc -l)" "$dir"

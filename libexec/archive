@@ -1,0 +1,104 @@
+#!/bin/sh
+# archive: keep a recoverable copy of the source you studied and of your changes.
+#   errand archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--public-url URL ...]
+# Offline part (always): git bundles (upstream base, your changes, everything),
+# a patch series, a tarball of HEAD, SHA-256 manifest, recovery notes, one zip.
+# Network part (skipped by --no-net), each step independent and logged to
+# NETWORK.tsv: Software Heritage "save code now" for the upstream URL and any
+# --public-url, Wayback Save Page Now (anonymous), ghre snapshot of the upstream
+# issues and pull requests (stops after ERRAND_SNAPSHOT_SECS, default 300). --deep adds ghre's per-page captures through the
+# pkgforge archive broker (slow: minutes to hours, resumable).
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+. "$ERRAND_HOME/libexec/spec.sh"
+
+DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) shift; NAME="$1" ;;
+    --out) shift; OUT="$1" ;;
+    --no-net) NET=0 ;;
+    --deep) DEEP=1 ;;
+    --public-url) shift; PUBURLS="$PUBURLS $1" ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) DIR="$1" ;;
+  esac
+  shift
+done
+DIR="$(cd "${DIR:-.}" && pwd)"
+git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
+[ -n "$NAME" ] || NAME=$(basename "$DIR")
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+OUT="${OUT:-$ERRAND_DATA/archive}/$NAME-$TS"
+mkdir -p "$OUT"
+G() { git -C "$DIR" "$@"; }
+
+UPSTREAM=$(G config --get errand.source 2>/dev/null || true)
+HAS_BASE=0; G rev-parse -q --verify refs/tags/errand/source-base >/dev/null 2>&1 && HAS_BASE=1
+HEADSHA=$(G rev-parse HEAD)
+
+if [ "$(G rev-parse --is-shallow-repository)" = true ]; then
+  say "shallow checkout: fetching full history so the archive is complete"
+  git_safe -C "$DIR" fetch -q --unshallow 2>/dev/null ||
+    git_safe -C "$DIR" fetch -q --unshallow "$BROKER/$UPSTREAM" 2>/dev/null ||
+    warn "could not unshallow; the bundles hold only the history this checkout has"
+fi
+G bundle create "$OUT/full.bundle" --all >/dev/null 2>&1 || die "cannot bundle $DIR"
+G archive --format=tar.gz --prefix="$NAME/" -o "$OUT/head.tar.gz" HEAD
+if [ "$HAS_BASE" = 1 ]; then
+  G bundle create "$OUT/source-base.bundle" errand/source-base >/dev/null 2>&1
+  if [ "$(G rev-parse errand/source-base)" != "$HEADSHA" ]; then
+    G bundle create "$OUT/changes.bundle" errand/source-base..HEAD >/dev/null 2>&1
+    G format-patch -q --stdout errand/source-base..HEAD > "$OUT/changes.patch" 2>/dev/null
+  fi
+fi
+for f in "$OUT"/*.bundle; do G bundle verify "$f" >/dev/null 2>&1 || die "bundle failed verification: $f"; done
+
+cat > "$OUT/RECOVER.md" <<R
+# Recovering $NAME
+
+Archived $(now_utc) from $DIR at commit $HEADSHA.
+Upstream: ${UPSTREAM:-none recorded (original work)}
+
+    git clone full.bundle $NAME          # every branch and tag, full history
+    git clone source-base.bundle base    # the upstream commit you started from (if present)
+    git -C base checkout errand/source-base
+    git -C base am < ../changes.patch    # replay your changes on that base (if present)
+    tar xzf head.tar.gz                  # HEAD without history
+
+Verify first: sha256sum -c MANIFEST.sha256
+R
+tsv="$OUT/NETWORK.tsv"; : > "$tsv"
+net() { printf '%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" >> "$tsv"; printf '%-10s %-6s %s\n' "$1" "$3" "$2"; }
+
+if [ "$NET" = 1 ]; then
+  urls="$UPSTREAM $PUBURLS"
+  for u in $urls; do
+    case "$u" in http*) ;; *) continue ;; esac
+    clean="${u%.git}"
+    code=$(curl -s -m 60 -X POST -o "$OUT/swh-$(printf '%s' "$clean" | tr -c 'A-Za-z0-9' '_').json" -w '%{http_code}' \
+      "https://archive.softwareheritage.org/api/1/origin/save/git/url/$clean/")
+    case "$code" in 200|201|202) net swh "$clean" "ok:$code" ;; *) net swh "$clean" "failed:$code" ;; esac
+    line=$(sh "$ERRAND_HOME/components/bulk-archive/bin/spn2.sh" "$clean" 2>/dev/null | head -n1)
+    net wayback "$clean" "$(printf '%s' "$line" | cut -f2):$(printf '%s' "$line" | cut -f3)"
+  done
+  S_GITHUB=0
+  [ -n "$UPSTREAM" ] && parse_spec "$UPSTREAM"
+  if [ "$S_GITHUB" = 1 ]; then
+    snapargs=""; [ "$DEEP" = 1 ] && snapargs="--save --poll --sweeps 8"
+    # shellcheck disable=SC2086
+    timeout "${ERRAND_SNAPSHOT_SECS:-300}" python3 "$ERRAND_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$OUT/ghre-snapshot" $snapargs >"$OUT/ghre-snapshot.log" 2>&1
+    case $? in
+      0) net ghre-snap "$S_OWNER/$S_REPO" ok ;;
+      124) net ghre-snap "$S_OWNER/$S_REPO" "partial: stopped after ${ERRAND_SNAPSHOT_SECS:-300}s, rerun ghre snapshot to resume" ;;
+      *) net ghre-snap "$S_OWNER/$S_REPO" "failed: see ghre-snapshot.log" ;;
+    esac
+  fi
+fi
+
+(cd "$OUT" && find . -type f ! -name MANIFEST.sha256 -print0 | sort -z | xargs -0 sha256sum > MANIFEST.sha256)
+zip_dir "$OUT" "$OUT.zip"
+say "archive: $OUT"
+say "zip:     $OUT.zip ($(du -h "$OUT.zip" | cut -f1))"
+echo "$OUT.zip"

@@ -1,0 +1,36 @@
+2026-11-05T03:32:49.980Z INFO  node     Starting node..
+2026-11-05T03:32:49.980Z INFO  node     Version 1.10.3 (7e1cb406bb935c3de008d2171e8961f57b4336ea)
+2026-11-05T03:32:49.980Z INFO  node     Unlocking node keystore..
+2026-11-05T03:32:50.186Z INFO  node     Node ID is z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx
+2026-11-05T03:32:50.186Z INFO  node     Opening policy database..
+2026-11-05T03:32:50.187Z INFO  node     Default seeding policy set to 'block (all)'
+2026-11-05T03:32:50.187Z INFO  node     Initializing service (Main)..
+2026-11-05T03:32:50.303Z INFO  node     Opening node database..
+2026-11-05T03:32:50.313Z INFO  reactor  Entering reactor event loop
+2026-11-05T03:32:50.314Z INFO  service  Disconnected from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (connection reset)
+2026-11-05T03:32:50.314Z INFO  service  Disconnected from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (connection reset)
+2026-11-05T03:32:50.315Z INFO  node     Binding control socket /tmp/radhome/node/control.sock..
+2026-11-05T03:32:50.315Z INFO  node     Running node z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx in /tmp/radhome..
+2026-11-05T03:32:54.320Z INFO  service  Disconnected from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (connection reset)
+2026-11-05T03:32:54.321Z INFO  service  Disconnected from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (connection reset)
+2026-11-05T03:32:55.993Z INFO  service  Received command Seeds(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:32:55.994Z INFO  service  Received command Connect(z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7, iris.radicle.network:8776, ConnectOptions { persistent: false, timeout: 9s })
+2026-11-05T03:32:55.995Z INFO  service  Received command Fetch(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe, z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7)
+2026-11-05T03:32:56.116Z INFO  service  Received command Seeds(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:32:56.117Z INFO  service  Received command AnnounceRefs(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:32:56.117Z INFO  service  Announcing refs rad:z3NgZszvQwT6CxcQGsW576y1KuUBe/z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx @ 678752b008788dc02f86566a99259d66839d84b4 to peers (t=1793849576117)..
+2026-11-05T03:33:02.323Z INFO  service  Disconnected from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (connection reset)
+2026-11-05T03:33:02.324Z INFO  service  Disconnected from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (connection reset)
+2026-11-05T03:33:18.328Z INFO  service  Disconnected from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (connection reset)
+2026-11-05T03:33:18.329Z INFO  service  Disconnected from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (connection reset)
+2026-11-05T03:33:41.627Z INFO  service  Received command Seeds(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:33:41.630Z INFO  service  Received command Connect(z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7, iris.radicle.network:8776, ConnectOptions { persistent: false, timeout: 9s })
+2026-11-05T03:33:41.630Z INFO  service  Received command Fetch(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe, z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7)
+2026-11-05T03:33:41.750Z INFO  service  Received command Seeds(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:33:41.751Z INFO  service  Received command AnnounceRefs(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T03:33:41.752Z INFO  service  Announcing refs rad:z3NgZszvQwT6CxcQGsW576y1KuUBe/z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx @ 678752b008788dc02f86566a99259d66839d84b4 to peers (t=1793849621751)..
+2026-11-05T03:33:50.332Z INFO  service  Disconnected from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (connection reset)
+2026-11-05T03:33:50.332Z INFO  service  Disconnected from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (connection reset)
+2026-11-05T03:33:59.544Z INFO  node     Termination signal received; shutting down..
+2026-11-05T03:33:59.544Z INFO  reactor::controller Initiating reactor shutdown…
+2026-11-05T03:33:59.545Z INFO  reactor  Shutdown

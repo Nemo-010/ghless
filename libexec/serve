@@ -1,0 +1,42 @@
+#!/bin/sh
+# serve: a git web index on a temporary public cfrs tunnel.
+#   errand serve [NAME=PATH | PATH ...]     (default: errand-home itself)
+#   errand serve --stop | --status
+# Repos are published as static files (browsable pages plus dumb-HTTP clone) in
+# $ERRAND_DATA/pub, served by a detached `cfrs serve`. The URL changes whenever
+# the tunnel restarts, so every run prints it again.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+have cfrs || die "cfrs is not installed (errand tools install cfrs)"
+PUB="$ERRAND_DATA/pub"
+INSTANCE=errand-pub
+
+case "${1:-}" in
+  --stop) cfrs stop "$INSTANCE" 2>&1; exit $? ;;
+  --status) cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; exit 0 ;;
+esac
+
+[ $# -gt 0 ] || set -- "errand-home=$ERRAND_HOME"
+specs=""
+for a in "$@"; do
+  case "$a" in
+    *=*) n="${a%%=*}"; p="${a#*=}" ;;
+    *) p="$a"; n=$(basename "$(cd "$a" && pwd)") ;;
+  esac
+  [ -d "$p" ] || die "no such directory: $p"
+  specs="$specs $n=$(cd "$p" && pwd)"
+done
+mkdir -p "$PUB"
+# shellcheck disable=SC2086
+python3 "$ERRAND_HOME/libexec/gitweb-static.py" "$PUB" $specs || die "could not build the index"
+
+doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
+url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
+[ -n "$url" ] || url=$(printf '%s' "$doc" | grep -oE 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' | head -n1)
+[ -n "$url" ] || die "no URL in cfrs output: $doc"
+code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url/index.html")
+say "serving $PUB (index answers $code)"
+for s in $specs; do echo "git clone $url/${s%%=*}.git"; done
+echo "$url"
+ledger_add tunnel "$(printf '%s' "$specs" | sed 's/=[^ ]*//g')" "$url" "$code"

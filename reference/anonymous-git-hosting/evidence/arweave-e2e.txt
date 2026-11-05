@@ -1,0 +1,24 @@
+# wallet: node-generated RSA-4096 JWK at /tmp/arwallet4096.json (2048-bit fails with
+# "sign data item: signature length incorrect")
+$ export ARWEAVE_WALLET=/tmp/arwallet4096.json
+$ git remote add aw arweave://Ii2ubG-vJM6bfChJcEUfH_VLm9rFt9-cCaoT59Bq0ao/errand-arweave-test
+$ git push aw main
+arweave: estimated cost 0.000014 credits (562 bytes)
+arweave: balance 0.000000 credits          # free tier: <100 KiB is free on Turbo
+To arweave://Ii2ubG.../errand-arweave-test
+ * [new branch]      main -> main
+
+# settlement, observed twice (~5 min):
+$ arweave-git status --all
+  TYPE      TX                                           TGW GW  GQL
+  manifest  Yj4uTMaxrfwXySUq0DQeOg-mbU3lerhpR9yvbX3JSxU   ✓   ✓   ✓   ← head, genesis
+  pack      _MHoRG645kwHV345KyeU8cS4_KjQFhSD8dkL0NPDl8o   ✓   ✓   ✓
+
+# fresh clone after settlement:
+$ git clone arweave://Ii2ubG.../errand-arweave-test arw-clone2
+$ git -C arw-clone2 log --oneline -1
+506879a feat: initial commit
+
+# NOTE: raw https://arweave.net/tx/<id> returned "Not Found." even while GW/GQL show ✓
+# and clone works; the helper fetches via the Turbo gateway. Do not use /tx/ as the
+# only liveness check.

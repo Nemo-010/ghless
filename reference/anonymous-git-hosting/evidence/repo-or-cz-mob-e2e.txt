@@ -1,0 +1,14 @@
+# anonymous push to an existing mob branch, no key, no password
+$ git clone https://repo.or.cz/mobexample.git mobwt && cd mobwt
+$ git checkout mob
+$ echo "errand anonymous mob-push test 2026-11-05T04:09:35Z" >> errand-mob-test.txt
+$ git add errand-mob-test.txt && git commit -qm "test: anonymous mob push (errand e2e check)"
+$ git push ssh://mob@repo.or.cz/mobexample.git mob:refs/heads/mob
+To ssh://127.0.0.1:1822/mobexample.git        # via local Tor relay on this host; on a
+   f04e718..70ae66a  mob -> mob                # normal host: ssh://mob@repo.or.cz/... directly
+
+# independent verification:
+$ git ls-remote https://repo.or.cz/mobexample.git refs/heads/mob
+70ae66a29491b8bc03b1d1dc925e1d08572f41ff	refs/heads/mob
+$ git clone --depth 1 --branch mob https://repo.or.cz/mobexample.git mobverify && cat mobverify/errand-mob-test.txt
+errand anonymous mob-push test 2026-11-05T04:09:35Z

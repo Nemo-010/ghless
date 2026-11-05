@@ -1,0 +1,23 @@
+2026-11-05T04:03:56.197Z INFO  node     Starting node..
+2026-11-05T04:03:56.197Z INFO  node     Version 1.10.3 (7e1cb406bb935c3de008d2171e8961f57b4336ea)
+2026-11-05T04:03:56.197Z INFO  node     Unlocking node keystore..
+2026-11-05T04:03:56.397Z INFO  node     Node ID is z6MkggxuXvPihGFL3K1orPTbdCLmVBRMWzqmSyop9nBTGRCz
+2026-11-05T04:03:56.397Z INFO  node     Opening policy database..
+2026-11-05T04:03:56.398Z INFO  node     Default seeding policy set to 'block (all)'
+2026-11-05T04:03:56.398Z INFO  node     Initializing service (Main)..
+2026-11-05T04:03:56.516Z INFO  node     Opening node database..
+2026-11-05T04:03:56.522Z INFO  service  Empty refs database, populating from storage..
+2026-11-05T04:03:56.525Z INFO  reactor  Entering reactor event loop
+2026-11-05T04:03:56.528Z INFO  node     Binding control socket /tmp/radhome3/node/control.sock..
+2026-11-05T04:03:56.528Z INFO  node     Running node z6MkggxuXvPihGFL3K1orPTbdCLmVBRMWzqmSyop9nBTGRCz in /tmp/radhome3..
+2026-11-05T04:03:56.528Z INFO  service  Received command QueryState(..)
+2026-11-05T04:03:57.116Z INFO  service  Connected to z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (127.0.0.1:18776) (Outbound)
+2026-11-05T04:03:57.197Z INFO  service  Connected to z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (127.0.0.1:28776) (Outbound)
+2026-11-05T04:04:04.258Z INFO  service  Received command Seed(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe, followed)
+2026-11-05T04:04:04.259Z INFO  service  Received command Seeds(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe)
+2026-11-05T04:04:04.260Z INFO  service  Received command QueryState(..)
+2026-11-05T04:04:04.261Z INFO  service  Received command Fetch(rad:z3NgZszvQwT6CxcQGsW576y1KuUBe, z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7)
+2026-11-05T04:04:06.910Z INFO  service  Fetched rad:z3NgZszvQwT6CxcQGsW576y1KuUBe from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 successfully
+2026-11-05T04:04:07.161Z INFO  node     Termination signal received; shutting down..
+2026-11-05T04:04:07.161Z INFO  reactor::controller Initiating reactor shutdown…
+2026-11-05T04:04:07.161Z INFO  reactor  Shutdown

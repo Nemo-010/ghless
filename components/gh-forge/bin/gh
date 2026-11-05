@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""Drop-in `gh` that prefers the real GitHub CLI and falls back to a read-only
+forge proxy when there is no working token (or the account is banned).
+
+Put this directory ahead of the real gh on PATH, or symlink this file to
+~/.local/bin/gh. The wrapper finds the real gh by skipping itself.
+"""
+
+import os
+import sys
+
+# realpath so a symlink in ~/.local/bin still finds the package beside it
+_here = os.path.dirname(os.path.realpath(__file__))
+_root = os.path.dirname(_here) if os.path.basename(_here) == "bin" else _here
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+from ghforge.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

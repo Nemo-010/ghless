@@ -1,0 +1,172 @@
+#!/bin/sh
+# publish: push a project to every lane that works, record where it went.
+#   errand publish [DIR] [--name NAME] [--lanes github,radicle,nostr,arweave] [--desc TEXT]
+# DIR defaults to the current directory. The pushed ref is DIR's HEAD, published
+# as `main` from a staging repo kept in $ERRAND_DATA/publish/NAME, so DIR's own
+# remotes and branches are never touched. Re-running updates the same repos.
+# A lane that cannot run is reported and skipped; the exit code is 0 when at
+# least one lane succeeded.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+
+DIR=""; NAME=""; LANES=""; DESC=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) shift; NAME="$1" ;;
+    --lanes) shift; LANES="$1" ;;
+    --desc) shift; DESC="$1" ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) DIR="$1" ;;
+  esac
+  shift
+done
+DIR="$(cd "${DIR:-.}" && pwd)"
+git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
+[ -n "$NAME" ] || NAME=$(basename "$DIR")
+NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^-*//')
+[ -n "$NAME" ] || die "name is empty after sanitising; pass --name"
+[ -n "$DESC" ] || DESC="$NAME, published by errand-home"
+if [ -z "$LANES" ]; then
+  LANES="radicle,nostr,arweave"
+  github_authed && LANES="github,$LANES"
+fi
+
+STAGE="$ERRAND_DATA/publish/$NAME"
+mkdir -p "$STAGE"
+[ -d "$STAGE/.git" ] || git -C "$STAGE" init -q -b main
+git -C "$STAGE" config user.name >/dev/null 2>&1 || git -C "$STAGE" config user.name errand
+git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user.email errand@users.noreply.invalid
+git_safe -C "$STAGE" fetch -q "$DIR" '+HEAD:refs/heads/incoming' || die "cannot read HEAD of $DIR"
+git -C "$STAGE" checkout -q -f -B main incoming
+HEADSHA=$(git -C "$STAGE" rev-parse --short HEAD)
+say "staging $NAME at $HEADSHA (lanes: $LANES)"
+
+ok=0
+result() { # result LANE URL STATUS
+  ledger_add "$1" "$NAME" "$2" "$3"
+  printf '%-9s %-6s %s\n' "$1" "$3" "$2"
+  [ "$3" = ok ] && ok=$((ok + 1))
+}
+
+lane_github() {
+  github_authed || { result github "-" "skipped: no working GitHub token"; return; }
+  login=$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)
+  if ! GH_FORGE_MODE=real gh repo view "$login/$NAME" >/dev/null 2>&1; then
+    GH_FORGE_MODE=real gh repo create "$login/$NAME" --public --description "$DESC" >/dev/null 2>&1 ||
+      { result github "$login/$NAME" "failed: repo create"; return; }
+  fi
+  git -C "$STAGE" remote get-url github >/dev/null 2>&1 || git -C "$STAGE" remote add github "https://github.com/$login/$NAME.git"
+  if git_safe -C "$STAGE" push -q github main --force 2>/dev/null; then
+    result github "https://github.com/$login/$NAME" ok
+  else
+    result github "https://github.com/$login/$NAME" "failed: push"
+  fi
+}
+
+lane_radicle() {
+  have rad || { result radicle "-" "failed: rad not installed (errand tools install radicle)"; return; }
+  export RAD_HOME="$ERRAND_DATA/radicle" RAD_PASSPHRASE=""
+  mkdir -p "$RAD_HOME"
+  [ -f "$RAD_HOME/keys/radicle" ] || rad auth --alias errand >/dev/null 2>&1 ||
+    { result radicle "-" "failed: rad auth"; return; }
+  seeds=""; seedhosts=""; n=0
+  for host in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do
+    info=$(curl -fsS -m 20 "https://$host/api/v1/node" 2>/dev/null) || continue
+    nid=$(printf '%s' "$info" | jq -r .id 2>/dev/null)
+    addr=$(printf '%s' "$info" | jq -r '[.config.externalAddresses[]? | select(test("\\.(onion|i2p):") | not)][0] // empty' 2>/dev/null)
+    [ -n "$nid" ] && [ -n "$addr" ] || continue
+    h="${addr%:*}"; p="${addr##*:}"
+    if direct_tcp "$h" "$p"; then
+      seeds="$seeds $nid@$addr"; seedhosts="$seedhosts $host"
+    elif warp_up; then
+      n=$((n + 1)); lp=$((18770 + n))
+      cfrs warp forward --detach --name "errand-rad-$n" --local "127.0.0.1:$lp=$h:$p" >/dev/null 2>&1 &&
+        { seeds="$seeds $nid@127.0.0.1:$lp"; seedhosts="$seedhosts $host"; }
+    fi
+  done
+  [ -n "$seeds" ] || { result radicle "-" "failed: no seed reachable"; return; }
+  arr=$(printf '%s\n' $seeds | jq -R . | jq -s .)
+  rad node stop >/dev/null 2>&1
+  tmp="$RAD_HOME/config.json.tmp"
+  jq --argjson s "$arr" '.preferredSeeds = $s | .node.connect = $s | .node.peers = {"type":"static"}' \
+    "$RAD_HOME/config.json" > "$tmp" && mv "$tmp" "$RAD_HOME/config.json"
+  setsid -f rad node start --foreground > "$RAD_HOME/node.stderr.log" 2>&1 < /dev/null
+  i=0; while [ $i -lt 20 ] && ! rad node status >/dev/null 2>&1; do sleep 1; i=$((i + 1)); done
+  (
+    cd "$STAGE" || exit 1
+    if ! rad inspect --rid >/dev/null 2>&1; then
+      rad init --name "$NAME" --description "$DESC" --default-branch main --public --no-confirm >/dev/null 2>&1 || exit 2
+    fi
+    git push -q rad main --force >/dev/null 2>&1 || exit 3
+    timeout 30 rad sync --announce >/dev/null 2>&1
+    exit 0
+  )
+  case $? in
+    0) ;;
+    2) result radicle "-" "failed: rad init"; return ;;
+    *) result radicle "-" "failed: push"; return ;;
+  esac
+  rid=$(cd "$STAGE" && rad inspect --rid 2>/dev/null)
+  have_copy=""; waited=0
+  while [ $waited -lt 180 ]; do
+    have_copy=""
+    for host in $seedhosts; do
+      [ "$(curl -s -m 15 -o /dev/null -w '%{http_code}' "https://$host/api/v1/repos/$rid")" = 200 ] && have_copy="$have_copy $host"
+    done
+    [ -n "$have_copy" ] && break
+    sleep 10; waited=$((waited + 10))
+  done
+  if [ -n "$have_copy" ]; then result radicle "$rid (copy on:$have_copy)" ok
+  else result radicle "$rid" "failed: no seed holds it after 180s (node log: $RAD_HOME/node.stderr.log)"; fi
+}
+
+lane_nostr() {
+  have ngit || { result nostr "-" "failed: ngit not installed (errand tools install ngit)"; return; }
+  have nak || { result nostr "-" "failed: nak not installed"; return; }
+  key="$ERRAND_DATA/nostr.key"
+  if [ ! -s "$key" ]; then
+    ( umask 077; nak key generate > "$key" ) || { result nostr "-" "failed: key generation"; return; }
+  fi
+  ident=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')
+  (
+    cd "$STAGE" || exit 1
+    if ! git remote get-url origin 2>/dev/null | grep -q '^nostr://'; then
+      net_run ngit --nsec-file "$key" init --name "$NAME" --identifier "$ident" --description "$DESC" --defaults >/dev/null 2>&1 || exit 2
+    else
+      ngit account login --local --nsec-file "$key" --secret-storage file --offline >/dev/null 2>&1
+      net_run git push origin main >/dev/null 2>&1 || exit 3
+    fi
+  )
+  rc=$?
+  url=$(git -C "$STAGE" remote get-url origin 2>/dev/null)
+  case $rc in
+    0) result nostr "$url" ok ;;
+    2) result nostr "-" "failed: ngit init" ;;
+    *) result nostr "${url:--}" "failed: push" ;;
+  esac
+}
+
+lane_arweave() {
+  have git-remote-arweave || { result arweave "-" "failed: git-remote-arweave not installed (errand tools install arweave)"; return; }
+  wallet="$ERRAND_DATA/arweave-wallet.json"
+  if [ ! -s "$wallet" ]; then
+    addr=$("$ERRAND_HOME/libexec/arweave-wallet.py" "$wallet") || { result arweave "-" "failed: wallet generation"; return; }
+    printf '%s' "$addr" > "$ERRAND_DATA/arweave-address.txt"
+  fi
+  addr=$(cat "$ERRAND_DATA/arweave-address.txt" 2>/dev/null)
+  [ -n "$addr" ] || { result arweave "-" "failed: wallet address unknown"; return; }
+  url="arweave://$addr/$NAME"
+  git -C "$STAGE" remote get-url arweave >/dev/null 2>&1 && git -C "$STAGE" remote set-url arweave "$url" || git -C "$STAGE" remote add arweave "$url"
+  out=$(ARWEAVE_WALLET="$wallet" git -C "$STAGE" push arweave main 2>&1)
+  if [ $? -eq 0 ]; then result arweave "$url" ok
+  else result arweave "$url" "failed: $(printf '%s' "$out" | tail -n1)"; fi
+}
+
+for lane in $(printf '%s' "$LANES" | tr ',' ' '); do
+  case "$lane" in
+    github) lane_github ;; radicle) lane_radicle ;; nostr) lane_nostr ;; arweave) lane_arweave ;;
+    *) warn "unknown lane: $lane" ;;
+  esac
+done
+[ "$ok" -gt 0 ]

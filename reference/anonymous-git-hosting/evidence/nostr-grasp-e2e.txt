@@ -1,0 +1,25 @@
+# ngit init (push side), run inside `cfrs warp exec` (ngit's rust websocket ignores proxy env)
+$ ngit -n <hex-key> init --name errand-nostr-git-test --identifier errand-nostr-git-test \
+    --description "errand e2e nostr git test" --defaults
+logged in for this command as npub1g4myap5qmuqk5z87r3qu8gatwcrqp9g76l73c6uz0nnthnqzwsfsdcfkxm
+push: * [new branch]      main
+push: Writing objects: 100% (3/3) 0.27 KiB, done.
+pushed main branch and published repository state
+share your repository: https://gitworkshop.dev/npub1g4my.../relay.ngit.dev/errand-nostr-git-test
+clone url: nostr://npub1g4my.../relay.ngit.dev/errand-nostr-git-test
+
+# read back the announcement (kind 30617) from the relay, no auth:
+$ nak req -k 30617 --author 45764e8680df016a08fe1c41c3a3ab760600951ed7fd1c6b827ce6bbcc027413 wss://relay.ngit.dev
+{"kind":30617,"d":"errand-nostr-git-test","relay_tag":"wss://relay.ngit.dev"}
+
+# anonymous smart-http refs from the GRASP server:
+$ curl https://relay.ngit.dev/<npub>/errand-nostr-git-test.git/info/refs?service=git-upload-pack
+001e# service=git-upload-pack
+0000014c506879a0363bc155eb4dbe7797d5bc6858fb22be HEAD ...
+
+# fresh machine, fresh key, plain git:
+$ git clone nostr://npub1g4my.../relay.ngit.dev/errand-nostr-git-test nostr-clone
+Cloning into 'nostr-clone'...
+README.md
+$ git -C nostr-clone log --oneline -1
+506879a feat: initial commit

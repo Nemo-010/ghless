@@ -1,0 +1,14 @@
+# bulk-archive-kit smoke results, 2026-11-05 (datacenter sandbox)
+# spn2.sh        anon GET   -> ok(existing-or-new) https://web.archive.org/web/20261105070809/...   [live]
+# spn2.sh        anon GET   -> rate-limited (429 x-rl:0, per-IP hold)                              [live]
+# spn2.sh        auth POST  -> 401 {"You need to be logged in..."} without keys                    [live]
+# arquivo-apn.sh submit     -> accepted (200, fire-and-forget)                                     [live]
+# arquivo-apn.sh -c         -> exists(1645) https://arquivo.pt/wayback/20080218195601              [live]
+# megalodon.sh   submit     -> bot-blocked ("ロボットの操作と考えられる取得を制限")                [live]
+#                            flow verified: gyo.tc -> confirm page (csrf + 60/h counter)
+#                            -> POST /pc/get_simple/decide; browser or residential IP needed
+# ghostarchive.sh submit    -> cloudflare (403 Just a moment)                                      [live]
+# ghostarchive.sh -c        -> exists https://ghostarchive.org/archive/hPlcr / none (404)          [live]
+# urlscan.sh     submit     -> 401 without key; -c search keyless works                            [live]
+# archive-today.sh          -> unreachable from this network (TLS blackholed to 104.36.80.x);      [docs]
+#                            script built from ArchiveTeam wiki + pp-archive-is CLI, unverified

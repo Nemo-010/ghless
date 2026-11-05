@@ -1,0 +1,6 @@
+Publishing refs/heads/main.
+Added pack 0c6cdbb802accd812fe2a489aabd135c2aa7d1f1 (3 objects) to the chain.
+Signed manifest #1 with 1 ref(s) and 1 pack(s), HEAD -> refs/heads/main.
+Address: torrent://b30e42ae1b36e05aed404fd1df3fe0ce04d8bf56bc6938aae541af132ab9be62
+Seeding 1 pack(s) of torrent://b30e42ae1b36e05aed404fd1df3fe0ce04d8bf56bc6938aae541af132ab9be62 on 0.0.0.0:42231.
+Error: DHT: Failed to find any nodes close to store value at

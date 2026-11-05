@@ -1,0 +1,41 @@
+#!/bin/sh
+# doctor: what works on this host. Exit 1 only when a required tool is missing.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+BRIEF=0; [ "${1:-}" = "--brief" ] && BRIEF=1
+rc=0
+
+row() { printf '%-22s %-8s %s\n' "$1" "$2" "$3"; }
+code() { curl -s -m 20 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null; }
+
+for t in git curl python3; do
+  if have "$t"; then row "$t" ok "$($t --version 2>&1 | head -n1)"; else row "$t" MISSING required; rc=1; fi
+done
+for t in jq unzip zip tar xz openssl ssh go; do
+  if have "$t"; then row "$t" ok ""; else row "$t" missing "optional; ./install adds it"; fi
+done
+for t in cfrs rad nak ngit git-remote-arweave; do
+  if have "$t"; then row "$t" ok "$(command -v "$t")"; else row "$t" missing "run: errand tools install"; fi
+done
+[ "$BRIEF" = 1 ] && exit $rc
+
+row "arch" "$(arch)" "$(uname -sr)"
+g=$(code https://github.com/git/git); row "github.com direct" "$g" ""
+a=$(code https://api.github.com/rate_limit); row "api.github.com direct" "$a" ""
+b=$(code "$BROKER/https://github.com/git/git"); row "broker (git paths)" "$b" "$BROKER"
+f=$(code https://forge.web.pkgforge.dev/llms.txt); row "forge proxy" "$f" "read-only GitHub API fallback"
+s=$(code https://archive.softwareheritage.org/api/1/); row "software heritage" "$s" ""
+w=$(code https://web.archive.org/); row "wayback" "$w" ""
+
+if have gh; then
+  if github_authed; then
+    row "github account" ok "real gh is authenticated: publish prefers github"
+  else
+    row "github account" none "reads fall back to the forge proxy; publish uses other lanes"
+  fi
+fi
+if have cfrs; then
+  if [ -n "${HTTPS_PROXY:-}${https_proxy:-}${ALL_PROXY:-}" ]; then row "egress" proxy "HTTPS proxy set; raw ports other than 443 are probably blocked"; else row "egress" direct ""; fi
+fi
+exit $rc

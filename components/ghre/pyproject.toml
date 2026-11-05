@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghre"
+version = "1.2.1"
+description = "Recover what is left of a suspended or deleted GitHub account"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "0BSD"}
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = []
+
+[project.scripts]
+ghre = "ghre.cli:main"
+
+[tool.setuptools]
+packages = ["ghre"]

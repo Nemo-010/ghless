@@ -1,0 +1,14 @@
+Fetching rad:z3NgZszvQwT6CxcQGsW576y1KuUBe from the network, found 2 potential seed(s).
+✓ Target met: 1 seed(s)
+✓ Creating checkout in ./radicle-errand-test..
+✓ Remote errandtest@z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx added
+✓ Remote-tracking branch errandtest@z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx/main created for z6Mko2EP9VVBFB558bAL4AzcCAxtQWK8ipLHepnjff3dJnWx
+✓ Repository successfully cloned under /tmp/cloneout/radicle-errand-test/
+╭──────────────────────╮
+│ radicle-errand-test  │
+│ errand e2e test      │
+│ 0 issues · 0 patches │
+╰──────────────────────╯
+Run `cd ./radicle-errand-test` to go to the repository directory.
+CLONE_EXIT=0
+DONE

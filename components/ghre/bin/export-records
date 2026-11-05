@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""Export a recovery record as one archive per repository.
+
+Takes a recovery directory produced by `ghre` and writes, for every repository
+the account touched, a single archive holding everything that survived for that
+repository: issues, comments, pull requests and commits. Repository content
+itself is deliberately left out.
+
+    bin/export-records <recovery-dir> <out-dir> --account NAME
+
+Archive naming is `<account>_<repo>`, which is unambiguous as long as no two
+repositories share a bare name. Where they do, the owner is inserted:
+`<account>_<owner>_<repo>`. An index records which archive is which full
+`owner/repo`, so the rule never has to be guessed.
+
+Only artifacts authored by the account are included. In the git lane a
+destination repository's merge commits are authored by the person who merged,
+not by the account, so those are counted and reported as excluded rather than
+silently dropped.
+
+Nothing here knows about any particular record. Layouts are discovered:
+`events/<owner>__<repo>/` from the events lane, `refs-lane/patches/` from the
+git lane, and any directory whose name looks like a repository holding markup
+documents from the archive lane.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import re
+import sys
+import zipfile
+from pathlib import Path
+
+# A directory that holds recovered documents for one repository is named after
+# it when the directory name matches this shape. Anything else is a lane
+# directory, not a repository.
+REPO_DIR = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+LANE_DIRS = {
+    "archive",
+    "events",
+    "objects",
+    "readable",
+    "refs",
+    "snippets",
+    "recovered",
+    "report-mining",
+}
+
+
+def author_matches(header: str, account: str) -> bool:
+    """True when a commit header names the account as its author.
+
+    The noreply address carries the account id and the login, which survives
+    deletion, so a substring test against the login is the reliable check.
+    """
+    return account.lower() in header.lower()
+
+
+def archive_stem(owner: str, repo: str, account: str, collisions: set[str]) -> str:
+    """Archive name for one repository, stable and readable.
+
+    A repository the account owned needs no owner segment: repeating the
+    account name twice helps nobody. A repository belonging to somebody else
+    adds the owner only when the bare name collides with another's.
+    """
+    if owner.lower() == account.lower():
+        return f"{account}_{repo}".replace("/", "_")
+    if repo in collisions:
+        return f"{account}_{owner}_{repo}".replace("/", "_")
+    return f"{account}_{repo}".replace("/", "_")
+
+
+def collect_events(src: Path) -> dict[tuple[str, str], list[Path]]:
+    """Issues and comments recovered from event payloads."""
+    out: dict[tuple[str, str], list[Path]] = {}
+    base = src / "events"
+    if not base.is_dir():
+        return out
+    for path in sorted(base.iterdir()):
+        if not path.is_dir() or "__" not in path.name:
+            continue
+        owner, _, repo = path.name.partition("__")
+        files = sorted(path.glob("issue-*.md")) + sorted(path.glob("comment-*.md"))
+        if files:
+            out.setdefault((owner, repo), []).extend(files)
+    return out
+
+
+def collect_patches(src: Path, account: str) -> tuple[dict[tuple[str, str], list[Path]], int, int]:
+    """Commit patches from the git lane, keeping only the account's own."""
+    out: dict[tuple[str, str], list[Path]] = {}
+    kept = excluded = 0
+    base = src / "refs-lane" / "patches"
+    if not base.is_dir():
+        return out, kept, excluded
+    for path in sorted(base.glob("*.patch.gz")):
+        stem = path.name.split("__", 1)[0]
+        owner, _, repo = stem.partition("_")
+        if not owner or not repo:
+            continue
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+            head = fh.read(4096)
+        if not author_matches(head, account):
+            excluded += 1
+            continue
+        out.setdefault((owner, repo), []).append(path)
+        kept += 1
+    return out, kept, excluded
+
+
+def collect_documents(src: Path) -> dict[tuple[str, str], list[Path]]:
+    """Documents recovered by the archive lane, grouped by repository.
+
+    A directory named `<account>/<repo>` under the record is taken as a
+    repository's documents when it is not one of the lane directories and its
+    name is a plausible repository name.
+    """
+    out: dict[tuple[str, str], list[Path]] = {}
+    for path in sorted(src.iterdir()):
+        if not path.is_dir():
+            continue
+        name = path.name
+        if name.lower() in LANE_DIRS or not REPO_DIR.match(name):
+            continue
+        if "__" in name:
+            continue
+        files = [
+            p
+            for p in path.rglob("*")
+            if p.is_file() and p.suffix in {".md", ".txt", ".html", ".json"}
+        ]
+        if files:
+            out.setdefault(("", name), []).extend(sorted(files))
+    return out
+
+
+def display_name(path: Path) -> str:
+    """Give every artifact a name that says what it is.
+
+    Bodies saved as `2.md` through `7.md` came from a directory already scoped
+    to issues. Inside a per-repository archive that name is meaningless, so the
+    prefix is restored.
+    """
+    if path.suffix in {".md", ".txt"} and path.stem.isdigit():
+        return f"issue-{path.stem}{path.suffix}"
+    return path.name
+
+
+def commit_index(patches: list[Path]) -> str:
+    """An index built by reading each patch, so it cannot disagree with them."""
+    rows = []
+    for path in sorted(patches):
+        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+            head = fh.read(8192)
+        sha = re.search(r"^commit ([0-9a-f]{40})", head, re.M)
+        author = re.search(r"^Author:\s+(.*)$", head, re.M)
+        date = re.search(r"^Date:\s+(.*)$", head, re.M)
+        subj = re.search(r"^Subject:\s+(.*)$", head, re.M)
+        rows.append(
+            "| {} | {} | {} | {} |".format(
+                (sha.group(1) if sha else "-")[:12],
+                (date.group(1) if date else "-").strip(),
+                (author.group(1) if author else "-").strip(),
+                (subj.group(1) if subj else "-").strip().replace("|", "\\|"),
+            )
+        )
+    lines = [
+        "# Commits",
+        "",
+        f"{len(patches)} commits authored by the account, recovered over the git",
+        "protocol. Each `.patch.gz` beside this file is the full",
+        "`git show --format=fuller` output: message, author, and diff.",
+        "Decompress with `gunzip`.",
+        "",
+        "| sha | date | author | subject |",
+        "|---|---|---|---|",
+    ]
+    return "\n".join(lines + rows) + "\n"
+
+
+def build(src: Path, out: Path, account: str) -> int:
+    events = collect_events(src)
+    patches, kept, excluded = collect_patches(src, account)
+    docs = collect_documents(src)
+
+    groups: dict[tuple[str, str], list[tuple[Path, str]]] = {}
+    for group in (events, docs):
+        for key, files in group.items():
+            for path in files:
+                groups.setdefault(key, []).append((path, display_name(path)))
+    for key, files in patches.items():
+        for path in files:
+            sha = path.name.rsplit("__", 1)[-1].split(".")[0]
+            groups.setdefault(key, []).append((path, f"commits/{sha}.patch.gz"))
+
+    counts: dict[str, int] = {}
+    for _, repo in groups:
+        counts[repo] = counts.get(repo, 0) + 1
+    collisions = {name for name, n in counts.items() if n > 1}
+
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for (owner, repo), files in sorted(groups.items()):
+        stem = archive_stem(owner, repo, account, collisions)
+        target = out / f"{stem}.zip"
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+            for path, arc in files:
+                info = zipfile.ZipInfo.from_file(path, arc)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                mode = path.stat().st_mode
+                info.external_attr = (mode & 0xFFFF) << 16
+                info.create_system = 3
+                z.writestr(info, path.read_bytes())
+            if (owner, repo) in patches:
+                z.writestr("COMMITS.md", commit_index(patches[(owner, repo)]))
+        written.append((target, owner, repo, len(files)))
+
+    lines = [
+        f"# Record archives for {account}",
+        "",
+        "One archive per repository the account touched. Each holds that",
+        "repository's issues, comments and commits, and no repository content.",
+        "",
+        f"Commits kept: {kept}. Commits excluded because another person authored",
+        f"them (merge commits of the account's branches): {excluded}.",
+        "",
+        "| archive | repository | files |",
+        "|---|---|---|",
+    ]
+    for target, owner, repo, n in written:
+        label = f"{owner}/{repo}" if owner else repo
+        lines.append(f"| {target.name} | {label} | {n} |")
+    lines.append("")
+    if collisions:
+        lines += [
+            "Repositories whose bare name collides across owners got their owner",
+            "in the archive name: " + ", ".join(sorted(collisions)) + ".",
+            "",
+        ]
+    (out / "INDEX.md").write_text("\n".join(lines), encoding="utf-8")
+    print(f"wrote {len(written)} archives to {out}")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        description="Export a ghre record as one archive per repository."
+    )
+    parser.add_argument("recovery", help="recovery directory from ghre")
+    parser.add_argument("out", help="directory to write the archives into")
+    parser.add_argument("--account", required=True, help="account name")
+    args = parser.parse_args(argv)
+    src = Path(args.recovery)
+    if not src.is_dir():
+        print(f"no such directory: {src}", file=sys.stderr)
+        return 1
+    return build(src, Path(args.out), args.account)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

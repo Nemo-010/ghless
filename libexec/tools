@@ -1,0 +1,131 @@
+#!/bin/sh
+# tools: install and report the pinned external binaries.
+#   tools install [cfrs radicle nak ngit arweave ...]   (default: all)
+#   tools status
+# Idempotent: a tool is skipped when its marker records the pinned version
+# and its binary is still present.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+
+BINDIR="$ERRAND_PREFIX/bin"
+MARKDIR="$ERRAND_PREFIX/installed"
+mkdir -p "$BINDIR" "$MARKDIR"
+
+marked() { [ "$(cat "$MARKDIR/$1" 2>/dev/null)" = "$2" ]; }
+mark() { printf '%s' "$2" > "$MARKDIR/$1"; }
+
+work_tmp() { mktemp -d "${TMPDIR:-/tmp}/errand-tools.XXXXXX"; }
+
+install_cfrs() {
+  want="$CFRS_VERSION $(pin_value CFRS_SHA)"
+  if [ -x "$BINDIR/cfrs" ] && marked cfrs "$want"; then say "cfrs $CFRS_VERSION already installed"; return 0; fi
+  sha=$(pin_value CFRS_SHA)
+  [ -n "$sha" ] || { warn "cfrs has no pin for $(arch)"; return 1; }
+  asset="cfrs-$(arch)-unknown-linux-musl"
+  [ "$(arch)" = armv7 ] && asset="cfrs-armv7-unknown-linux-musleabihf"
+  t=$(work_tmp)
+  download_pinned "$CFRS_BASE/$asset" "$sha" "$t/cfrs" || { rm -rf "$t"; return 1; }
+  chmod 0755 "$t/cfrs"; mv -f "$t/cfrs" "$BINDIR/cfrs"
+  psha=$(pin_value POD_SHA)
+  if [ -n "$psha" ]; then
+    passet="pod-netns-$(arch)-unknown-linux-musl"
+    [ "$(arch)" = armv7 ] && passet="pod-netns-armv7-unknown-linux-musleabihf"
+    if download_pinned "$CFRS_BASE/$passet" "$psha" "$t/pod-netns"; then
+      chmod 0755 "$t/pod-netns"; mv -f "$t/pod-netns" "$BINDIR/pod-netns"
+    else
+      warn "pod-netns not installed; cfrs pod may be unavailable"
+    fi
+  fi
+  rm -rf "$t"
+  mark cfrs "$want"; say "cfrs $CFRS_VERSION installed"
+}
+
+install_radicle() {
+  want="$RAD_VERSION $(pin_value RAD_SHA)"
+  if [ -x "$BINDIR/rad" ] && marked radicle "$want"; then say "radicle $RAD_VERSION already installed"; return 0; fi
+  sha=$(pin_value RAD_SHA)
+  [ -n "$sha" ] || { warn "radicle has no pin for $(arch)"; return 1; }
+  have xz || { warn "xz is required to unpack radicle (apt: xz-utils)"; return 1; }
+  t=$(work_tmp)
+  download_pinned "$RAD_BASE/radicle-$(arch)-unknown-linux-musl.tar.xz" "$sha" "$t/rad.tar.xz" || { rm -rf "$t"; return 1; }
+  tar -xJf "$t/rad.tar.xz" -C "$t" --strip-components=1 || { rm -rf "$t"; return 1; }
+  for b in rad radicle-node git-remote-rad; do install -m 0755 "$t/bin/$b" "$BINDIR/$b"; done
+  rm -rf "$t"; mark radicle "$want"; say "radicle $RAD_VERSION installed"
+}
+
+install_nak() {
+  want="$NAK_VERSION $(pin_value NAK_SHA)"
+  if [ -x "$BINDIR/nak" ] && marked nak "$want"; then say "nak $NAK_VERSION already installed"; return 0; fi
+  sha=$(pin_value NAK_SHA)
+  [ -n "$sha" ] || { warn "nak has no pin for $(arch)"; return 1; }
+  case "$(arch)" in x86_64) a=amd64 ;; aarch64) a=arm64 ;; *) a=$(arch) ;; esac
+  t=$(work_tmp)
+  download_pinned "$NAK_BASE/nak-$NAK_VERSION-linux-$a" "$sha" "$t/nak" || { rm -rf "$t"; return 1; }
+  install -m 0755 "$t/nak" "$BINDIR/nak"; rm -rf "$t"; mark nak "$want"; say "nak $NAK_VERSION installed"
+}
+
+install_ngit() {
+  want="$NGIT_VERSION $(pin_value NGIT_SHA)"
+  if [ -x "$BINDIR/ngit" ] && marked ngit "$want"; then say "ngit $NGIT_VERSION already installed"; return 0; fi
+  sha=$(pin_value NGIT_SHA)
+  [ -n "$sha" ] || { warn "ngit has no pin for $(arch)"; return 1; }
+  case "$(arch)" in
+    x86_64) asset="ngit-$NGIT_VERSION-x86_64-unknown-linux-musl.tar.gz" ;;
+    aarch64) asset="ngit-$NGIT_VERSION-aarch64-unknown-linux-gnu.2.17.tar.gz" ;;
+    *) warn "ngit has no prebuilt asset for $(arch)"; return 1 ;;
+  esac
+  t=$(work_tmp)
+  download_pinned "$NGIT_BASE/$asset" "$sha" "$t/ngit.tgz" || { rm -rf "$t"; return 1; }
+  tar -xzf "$t/ngit.tgz" -C "$t" || { rm -rf "$t"; return 1; }
+  for b in ngit git-remote-nostr; do
+    f=$(find "$t" -type f -name "$b" | head -n1)
+    [ -n "$f" ] || { warn "$b not found in $asset"; rm -rf "$t"; return 1; }
+    install -m 0755 "$f" "$BINDIR/$b"
+  done
+  rm -rf "$t"; mark ngit "$want"; say "ngit $NGIT_VERSION installed"
+}
+
+install_arweave() {
+  want="$ARWEAVE_COMMIT"
+  if [ -x "$BINDIR/git-remote-arweave" ] && [ -x "$BINDIR/arweave-git" ] && marked arweave "$want"; then
+    say "git-remote-arweave $ARWEAVE_COMMIT already installed"; return 0
+  fi
+  have go || { warn "go is required to build git-remote-arweave (apt: golang-go)"; return 1; }
+  t=$(work_tmp)
+  (
+    cd "$t" && git init -q src && cd src &&
+    git_safe fetch -q --depth 1 "$ARWEAVE_REPO" "$ARWEAVE_COMMIT" ||
+    git_safe fetch -q --depth 1 "$BROKER/$ARWEAVE_REPO" "$ARWEAVE_COMMIT"
+  ) || { warn "cannot fetch $ARWEAVE_REPO at $ARWEAVE_COMMIT"; rm -rf "$t"; return 1; }
+  (
+    cd "$t/src" && git checkout -q FETCH_HEAD &&
+    [ "$(git rev-parse HEAD)" = "$ARWEAVE_COMMIT" ] &&
+    CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
+  ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
+  for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b"; done
+  rm -rf "$t"; mark arweave "$want"; say "git-remote-arweave $ARWEAVE_COMMIT built"
+}
+
+status() {
+  for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
+    if [ -x "$BINDIR/$b" ]; then printf '%-20s %s\n' "$b" "$BINDIR/$b"; else printf '%-20s missing\n' "$b"; fi
+  done
+}
+
+cmd="${1:-install}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  status) status ;;
+  install)
+    [ $# -gt 0 ] || set -- cfrs radicle nak ngit arweave
+    rc=0
+    for tool in "$@"; do
+      case "$tool" in
+        cfrs) install_cfrs ;; radicle|rad) install_radicle ;; nak) install_nak ;;
+        ngit) install_ngit ;; arweave) install_arweave ;;
+        *) warn "unknown tool: $tool"; false ;;
+      esac || { warn "$tool failed"; rc=1; }
+    done
+    exit $rc ;;
+  *) die "usage: tools [install [tool...]|status]" ;;
+esac

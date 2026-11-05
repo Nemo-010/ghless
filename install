@@ -1,0 +1,170 @@
+#!/bin/sh
+# install: one-time, idempotent setup of errand-home.
+#
+#   ./install [--core] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall]
+#             [--prefix DIR] [--bin DIR]
+#
+#   --core         system packages + cfrs only (skip radicle, nak, ngit, arweave)
+#   --no-gh-shim   do not put the gh-forge wrapper on PATH as `gh`
+#   --no-skill     do not register SKILL.md with agent skill directories
+#   --no-path      do not edit shell profiles
+#   --uninstall    remove links, profile block and skill links (keeps data)
+#
+# Environment: ERRAND_PREFIX (binaries, default ~/.local/share/errand),
+# ERRAND_BIN (links, default ~/.local/bin), ERRAND_DATA (state and work).
+# Safe to re-run: every step checks before it acts.
+set -u
+ERRAND_HOME=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+export ERRAND_HOME
+USER_DATA="${ERRAND_DATA:-}"; USER_WORK="${ERRAND_WORK:-}"
+. "$ERRAND_HOME/libexec/common.sh"
+
+CORE=0; GHSHIM=1; SKILL=1; EDITPATH=1; UNINSTALL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --core) CORE=1 ;;
+    --no-gh-shim) GHSHIM=0 ;;
+    --no-skill) SKILL=0 ;;
+    --no-path) EDITPATH=0 ;;
+    --uninstall) UNINSTALL=1 ;;
+    --prefix) shift; ERRAND_PREFIX="$1"; ERRAND_DATA="${USER_DATA:-$1/data}"; ERRAND_WORK="${USER_WORK:-$ERRAND_DATA/work}"; PATH="$1/bin:$PATH"; export ERRAND_PREFIX ERRAND_DATA ERRAND_WORK PATH ;;
+    --bin) shift; ERRAND_BIN="$1"; export ERRAND_BIN ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown option: $1 (try --help)" ;;
+  esac
+  shift
+done
+
+MARK_BEGIN="# >>> errand-home >>>"
+MARK_END="# <<< errand-home <<<"
+SKILL_DIRS="$HOME/.claude/skills $HOME/.agents/skills"
+LINKS="errand ghre ghre-hunt ghre-pack-patches ghre-export-records bulk-archive spn2 arquivo-apn megalodon ghostarchive archive-today urlscan socks-relay"
+
+link_target() {
+  case "$1" in
+    errand) echo "$ERRAND_HOME/bin/errand" ;;
+    ghre) echo "$ERRAND_HOME/components/ghre/bin/ghre" ;;
+    ghre-hunt) echo "$ERRAND_HOME/components/ghre/bin/hunt" ;;
+    ghre-pack-patches) echo "$ERRAND_HOME/components/ghre/bin/pack-patches" ;;
+    ghre-export-records) echo "$ERRAND_HOME/components/ghre/bin/export-records" ;;
+    bulk-archive) echo "$ERRAND_HOME/components/bulk-archive/bin/bulk-archive.sh" ;;
+    spn2) echo "$ERRAND_HOME/components/bulk-archive/bin/spn2.sh" ;;
+    arquivo-apn) echo "$ERRAND_HOME/components/bulk-archive/bin/arquivo-apn.sh" ;;
+    megalodon) echo "$ERRAND_HOME/components/bulk-archive/bin/megalodon.sh" ;;
+    ghostarchive) echo "$ERRAND_HOME/components/bulk-archive/bin/ghostarchive.sh" ;;
+    archive-today) echo "$ERRAND_HOME/components/bulk-archive/bin/archive-today.sh" ;;
+    urlscan) echo "$ERRAND_HOME/components/bulk-archive/bin/urlscan.sh" ;;
+    socks-relay) echo "$ERRAND_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" ;;
+    gh) echo "$ERRAND_HOME/components/gh-forge/bin/gh" ;;
+  esac
+}
+
+profile_files() {
+  for f in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+    case "$f" in
+      "$HOME/.profile"|"$HOME/.bashrc") echo "$f" ;;
+      *) [ -f "$f" ] && echo "$f" ;;
+    esac
+  done
+}
+
+strip_block() { # strip_block FILE
+  [ -f "$1" ] || return 0
+  grep -qF "$MARK_BEGIN" "$1" || return 0
+  tmp="$1.errand.$$"
+  awk -v b="$MARK_BEGIN" -v e="$MARK_END" '$0==b{skip=1;next} $0==e{skip=0;next} !skip' "$1" > "$tmp" && cat "$tmp" > "$1"
+  rm -f "$tmp"
+}
+
+if [ "$UNINSTALL" = 1 ]; then
+  for n in $LINKS gh; do
+    t=$(link_target "$n")
+    [ "$(readlink "$ERRAND_BIN/$n" 2>/dev/null)" = "$t" ] && rm -f "$ERRAND_BIN/$n" && say "removed $ERRAND_BIN/$n"
+  done
+  for f in $(profile_files); do strip_block "$f"; done
+  for d in $SKILL_DIRS; do
+    [ -L "$d/errand-home" ] && rm -f "$d/errand-home" && say "removed $d/errand-home"
+  done
+  say "uninstalled; data kept in $ERRAND_DATA, binaries kept in $ERRAND_PREFIX/bin"
+  exit 0
+fi
+
+# 1. System packages. The package manager is detected, never assumed.
+need=""
+for pair in git:git curl:curl python3:python3 jq:jq unzip:unzip zip:zip tar:tar gzip:gzip xz:xz-utils sha256sum:coreutils; do
+  have "${pair%%:*}" || need="$need ${pair#*:}"
+done
+have ssh || need="$need openssh-client"
+have openssl || need="$need openssl"
+if [ "$CORE" = 0 ]; then have go || need="$need golang-go"; fi
+if [ -n "$need" ]; then
+  SUDO=""; [ "$(id -u)" != 0 ] && have sudo && SUDO="sudo -n"
+  if have apt-get; then
+    say "installing system packages:$need"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates $need >/dev/null 2>&1 ||
+      { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 &&
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates $need >/dev/null; } ||
+      warn "apt-get could not install:$need"
+  elif have apk; then
+    $SUDO apk add --no-cache git curl python3 jq unzip zip tar gzip xz openssh-client go ca-certificates >/dev/null || warn "apk failed"
+  elif have dnf; then
+    $SUDO dnf install -y git curl python3 jq unzip zip tar gzip xz openssh-clients golang ca-certificates >/dev/null || warn "dnf failed"
+  elif have pacman; then
+    $SUDO pacman -S --noconfirm --needed git curl python jq unzip zip tar gzip xz openssh go >/dev/null || warn "pacman failed"
+  else
+    warn "no known package manager; install manually:$need"
+  fi
+fi
+for must in git curl python3; do
+  have "$must" || die "$must is required and could not be installed"
+done
+
+# 2. Pinned binaries.
+mkdir -p "$ERRAND_PREFIX/bin" "$ERRAND_DATA" "$ERRAND_WORK" "$ERRAND_BIN"
+rc=0
+if [ "$CORE" = 1 ]; then
+  "$ERRAND_HOME/libexec/tools" install cfrs || rc=1
+else
+  "$ERRAND_HOME/libexec/tools" install || rc=1
+fi
+
+# 3. Commands on PATH.
+for n in $LINKS; do
+  t=$(link_target "$n")
+  [ -e "$t" ] || { warn "missing $t"; continue; }
+  chmod +x "$t" 2>/dev/null
+  ln -sfn "$t" "$ERRAND_BIN/$n"
+done
+if [ "$GHSHIM" = 1 ]; then
+  chmod +x "$ERRAND_HOME/components/gh-forge/bin/gh"
+  ln -sfn "$(link_target gh)" "$ERRAND_BIN/gh"
+fi
+# The binaries installed by tools are reachable by name as well.
+for b in cfrs rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
+  [ -x "$ERRAND_PREFIX/bin/$b" ] && ln -sfn "$ERRAND_PREFIX/bin/$b" "$ERRAND_BIN/$b"
+done
+
+# 4. PATH for future shells.
+if [ "$EDITPATH" = 1 ]; then
+  for f in $(profile_files); do
+    strip_block "$f"
+    {
+      printf '%s\n' "$MARK_BEGIN"
+      printf 'case ":$PATH:" in *":%s:"*) ;; *) PATH="%s:$PATH" ;; esac\n' "$ERRAND_BIN" "$ERRAND_BIN"
+      printf 'export PATH ERRAND_HOME="%s"\n' "$ERRAND_HOME"
+      printf '%s\n' "$MARK_END"
+    } >> "$f"
+  done
+fi
+
+# 5. Skill registration (symlink, so the skill follows the checkout).
+if [ "$SKILL" = 1 ]; then
+  for d in $SKILL_DIRS; do
+    mkdir -p "$d" && ln -sfn "$ERRAND_HOME/skill/errand-home" "$d/errand-home"
+  done
+fi
+
+# 6. Prove it.
+"$ERRAND_HOME/bin/errand" doctor --brief || rc=1
+say "installed. Open a new shell, or run: export PATH=\"$ERRAND_BIN:\$PATH\""
+exit $rc

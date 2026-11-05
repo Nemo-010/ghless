@@ -1,0 +1,14 @@
+#!/bin/sh
+# update-check: compare each pin with the upstream's latest release. Read only.
+set -u
+ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$ERRAND_HOME/libexec/common.sh"
+latest() { curl -fsS -m 30 "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null ||
+           curl -fsS -m 30 "https://forge.web.pkgforge.dev/github/repos/$1/releases/latest" 2>/dev/null | jq -r .tag_name 2>/dev/null; }
+latest_pre() { curl -fsS -m 30 "https://api.github.com/repos/$1/releases?per_page=1" 2>/dev/null | jq -r '.[0].tag_name' 2>/dev/null; }
+row() { printf '%-10s pinned %-14s latest %s\n' "$1" "$2" "${3:-unknown}"; }
+row cfrs "$CFRS_TAG" "$(latest_pre Azathothas/cfrs)"
+row nak "$NAK_VERSION" "$(latest fiatjaf/nak)"
+row ngit "$NGIT_VERSION" "$(latest DanConwayDev/ngit-cli)"
+row radicle "$RAD_VERSION" "$(curl -fsS -m 30 https://files.radicle.dev/releases/latest/radicle.json 2>/dev/null | jq -r .version 2>/dev/null)"
+row arweave "${ARWEAVE_COMMIT%"${ARWEAVE_COMMIT#???????}"}" "$(git ls-remote "$ARWEAVE_REPO" HEAD 2>/dev/null | cut -c1-7)"

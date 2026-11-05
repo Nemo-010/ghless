@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# hunt: one account, both phases, with the extra repositories worth sweeping.
+#
+#   ./bin/hunt <account> [outdir]
+#
+# The extra repositories are other people's projects whose pull refs may still
+# serve the account's commits. They are guesses informed by the account's own
+# work, so they are passed explicitly rather than hardcoded per account.
+set -uo pipefail
+
+here="$(cd "$(dirname "$0")/.." && pwd)"
+account="${1:-}"
+out="${2:-work/$account}"
+
+if [ -z "$account" ]; then
+  echo "usage: $0 <account> [outdir]" >&2
+  exit 1
+fi
+
+python3 "$here/bin/ghre" ledger "$account" --out "$out" || exit 1
+args=()
+for repo in ${GHRE_REPOS:-}; do
+  args+=(--repo "$repo")
+done
+python3 "$here/bin/ghre" recover "$out" "${args[@]+"${args[@]}"}" || exit 1
+python3 "$here/bin/ghre" report "$out"
+echo "done: $out"

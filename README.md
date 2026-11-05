@@ -1,0 +1,74 @@
+# errand-home
+
+One home for an agent that has no GitHub account and still has to read, copy,
+change, publish and archive code. It melds five earlier pieces (see
+`docs/PROVENANCE.md`) behind one installer and one command, `errand`.
+
+```sh
+./install            # once; idempotent; needs sudo only if system packages are missing
+errand doctor        # what works on this host
+```
+
+Fetch the repo from a zip, a decentralized host, or GitHub, run `./install`
+once, and the rest needs nothing else.
+
+## What you get
+
+| need | command | how it works |
+| --- | --- | --- |
+| read any public GitHub asset | `errand read owner/repo [path]`, `gh ...` | raw.githubusercontent.com, then the fetch broker, then the forge API. `gh` is the real gh when its token works, else a read-only forge proxy with the same argv and output shapes (gh-forge). |
+| copy and work on it | `errand fetch owner/repo [dir]` | direct git, then git through the broker, then the source tarball. Tags the upstream commit `errand/source-base`, opens branch `errand/work`. |
+| publish | `errand publish [dir]` | github if a real token works, plus radicle, nostr (ngit/GRASP), arweave. Reports each lane. |
+| temporary public web | `errand serve` | static git index plus dumb-HTTP clone over `cfrs serve` (Cloudflare quick tunnel). |
+| archive | `errand archive [dir]` | git bundles (upstream base, your changes, all), patch series, tarball, SHA-256 manifest, zip; Software Heritage and Wayback requests; ghre snapshot of upstream issues and PRs. |
+| recover a lost account | `ghre ledger`, `ghre recover`, `ghre snapshot` | the ghre tool, unchanged. See `components/ghre/PLAYBOOK.md`. |
+| bulk web archiving | `bulk-archive`, `spn2`, `megalodon`, ... | the bulk-archive kit. |
+| share the project | `errand pack` | zip of this tree plus `.sha256`. |
+
+When a new GitHub account exists, nothing changes for you: `gh` uses it,
+`errand doctor` shows `github account ok`, and `errand publish` adds the
+github lane first. The other lanes and the archive keep running regardless.
+
+## Install details
+
+`./install [--core] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall] [--prefix DIR] [--bin DIR]`
+
+1. System packages through the detected package manager (apt, apk, dnf, pacman): git, curl, python3, jq, unzip, zip, tar, gzip, xz, openssl, ssh, go. Missing ones only.
+2. Pinned binaries into `$ERRAND_PREFIX/bin` (default `~/.local/share/errand/bin`), each checked against a SHA-256 in `pins/pins.env`. A mismatch deletes the download and fails that tool. cfrs, Radicle, nak and ngit are release binaries; git-remote-arweave has no releases and is built with Go from a pinned commit.
+3. Symlinks in `~/.local/bin` (errand, gh, ghre, bulk-archive, spn2, ...), and a marked block in `~/.profile` and `~/.bashrc` that puts it first on `PATH`.
+4. The skill is linked into `~/.claude/skills/errand-home` and `~/.agents/skills/errand-home`.
+5. `errand doctor --brief` as a check.
+
+`--core` installs packages and cfrs only. Lanes can be added later with `errand tools install radicle nak ngit arweave`.
+Pins move only by editing `pins/pins.env`; `errand update-check` shows what upstream has.
+
+State: `$ERRAND_DATA` (default `~/.local/share/errand/data`) holds identities
+(`radicle/`, `nostr.key`, `arweave-wallet.json`, all private), `work/`,
+`publish/` (staging repos), `archive/`, `pub/` and `published.tsv`, the ledger
+of everything published.
+
+## Hosts whose only egress is an HTTPS proxy
+
+Radicle and ngit need raw TCP. `errand publish` detects that (`direct_tcp`
+fails), starts `cfrs agent up --warp` (WARP over MASQUE on TCP 443), runs ngit
+inside `cfrs warp exec`, and maps Radicle seed ports to local listeners with
+`cfrs warp forward`. `CFRS_STATE_DIR` is pinned to `$ERRAND_DATA/cfrs` for every
+call so `up`, `exec` and `forward` always agree. Details and limits:
+`docs/LANES.md`, `reference/cfrs-field-report/`.
+
+## Tests
+
+`sh tests/run.sh` runs offline checks (syntax, spec parsing, gitweb build and clone, pack, pin refusal, installer idempotency in a scratch HOME, ghre unit tests). `sh tests/run.sh --net` adds live fetch/read routes.
+
+## Layout
+
+```
+install  bin/errand  libexec/*      installer, dispatcher, one script per command
+pins/pins.env                        versions and SHA-256 of external binaries
+components/gh-forge                  gh wrapper (unchanged except a doc line)
+components/ghre                      recovery and snapshot tool (unchanged)
+components/bulk-archive              web archiving scripts (one bug fixed)
+reference/anonymous-git-hosting      survey, evidence and logs of every lane tried
+reference/cfrs-field-report          cfrs 0.3.0-beta.12 field report and evidence
+docs/  skill/errand-home/SKILL.md    guides for people and agents
+```

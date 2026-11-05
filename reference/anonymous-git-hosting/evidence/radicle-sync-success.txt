@@ -1,0 +1,20 @@
+Everything up-to-date
+PUSH_EXIT=0
+Fetching rad:z3NgZszvQwT6CxcQGsW576y1KuUBe from the network, found 2 potential seed(s).
+✗ Target not met: could not fetch from [z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7, z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2], and required 2 more seed(s)
+✗ Error: Fetched from 0 preferred seed(s), could not reach 2 seed(s)
+✗ Error: Could not replicate from 2 preferred seed(s)
+✗ Error: z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7: an I/O error occurred during the fetch handshake (connection reset)
+✗ Error: z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2: an I/O error occurred during the fetch handshake (connection reset)
+✓ Synced with 2 seed(s)
+SYNC_EXIT=0
+Fetching rad:z3NgZszvQwT6CxcQGsW576y1KuUBe from the network, found 4 potential seed(s).
+✓ Target met: 2 preferred seed(s).
+🌱 Fetched from z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7
+🌱 Fetched from z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2
+✓ Nothing to announce, already in sync with 3 seed(s) (see `rad sync status`)
+SYNC2_EXIT=0
+2026-11-05T03:55:35.910Z INFO  service  Disconnected from z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo (failed to lookup address information: Try again)
+2026-11-05T03:55:36.185Z INFO  service  Connected to z6MkwfrBy9mKTfcVELcV4wc6zfN379FPMnAqsxnwt4j2TdQ2 (127.0.0.1:28776) (Outbound)
+2026-11-05T03:55:36.195Z INFO  service  Connected to z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7 (127.0.0.1:18776) (Outbound)
+DONE

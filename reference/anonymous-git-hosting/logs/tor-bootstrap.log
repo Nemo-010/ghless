@@ -1,0 +1,7 @@
+Nov 05 03:46:20.900 [notice] Tor 0.4.9.15 running on Linux with Libevent 2.1.13-stable, OpenSSL 3.5.7, Zlib 1.3.1, Liblzma 5.8.1, Libzstd 1.5.7 and Glibc 2.41 as libc.
+Nov 05 03:46:20.900 [notice] Tor can't help you if you use it wrong! Learn how to be safe at https://support.torproject.org/faq/staying-anonymous/
+Nov 05 03:46:20.900 [notice] Read configuration file "/etc/tor/tor-custom.conf".
+Nov 05 03:46:20.907 [notice] Opening Socks listener on 127.0.0.1:9050
+Nov 05 03:46:20.907 [notice] Opened Socks listener connection (ready) on 127.0.0.1:9050
+Nov 05 03:46:20.907 [notice] Opening DNS listener on 127.0.0.1:5353
+Nov 05 03:46:20.907 [notice] Opened DNS listener connection (ready) on 127.0.0.1:5353
