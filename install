@@ -155,6 +155,31 @@ else
   "$GHLESS_HOME/libexec/tools" install || rc=1
 fi
 
+# 2b. Migration from the first name of this project (errand-home). Only links that
+# point into an errand-home tree or the old prefix are removed.
+OLD_BEGIN="# >>> errand-home >>>"; OLD_END="# <<< errand-home <<<"
+OLD_PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/errand"
+for n in errand $LINKS gh cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
+  tgt=$(readlink "$GHLESS_BIN/$n" 2>/dev/null) || continue
+  case "$tgt" in
+    */errand-home/*|"$OLD_PREFIX"/*) rm -f "$GHLESS_BIN/$n"; say "migrated: removed old link $GHLESS_BIN/$n" ;;
+  esac
+done
+for f in $(profile_files); do
+  if grep -qxF "$OLD_BEGIN" "$f" 2>/dev/null && grep -qxF "$OLD_END" "$f"; then
+    MARK_BEGIN_SAVE="$MARK_BEGIN"; MARK_END_SAVE="$MARK_END"
+    MARK_BEGIN="$OLD_BEGIN"; MARK_END="$OLD_END"; strip_block "$f"
+    MARK_BEGIN="$MARK_BEGIN_SAVE"; MARK_END="$MARK_END_SAVE"
+    say "migrated: removed the old errand-home block from $f"
+  fi
+done
+for d in $SKILL_DIRS; do
+  case "$(readlink "$d/errand-home" 2>/dev/null)" in */errand-home/*) rm -f "$d/errand-home"; say "migrated: removed $d/errand-home" ;; esac
+done
+if [ -d "$OLD_PREFIX/data" ] && [ ! -e "$GHLESS_DATA/nostr.key" ] && [ "$OLD_PREFIX" != "$GHLESS_PREFIX" ]; then
+  cp -a "$OLD_PREFIX/data/." "$GHLESS_DATA/" && say "migrated: copied identities and ledger from $OLD_PREFIX/data (the old copy is kept)"
+fi
+
 # 3. Commands on PATH.
 put_link() { # put_link NAME TARGET: never replaces a file that is not one of our links
   if [ -e "$GHLESS_BIN/$1" ] || [ -L "$GHLESS_BIN/$1" ]; then

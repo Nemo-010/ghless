@@ -58,7 +58,7 @@ install_radicle() {
   t=$(work_tmp)
   download_pinned "$RAD_BASE/radicle-$(arch)-unknown-linux-musl.tar.xz" "$sha" "$t/rad.tar.xz" || { rm -rf "$t"; return 1; }
   tar -xJf "$t/rad.tar.xz" -C "$t" --strip-components=1 || { rm -rf "$t"; return 1; }
-  for b in rad radicle-node git-remote-rad; do install -m 0755 "$t/bin/$b" "$BINDIR/$b"; done
+  for b in rad radicle-node git-remote-rad; do install -m 0755 "$t/bin/$b" "$BINDIR/$b" || { rm -rf "$t"; return 1; }; done
   rm -rf "$t"; mark radicle "$want" "$BINDIR/rad" "$BINDIR/radicle-node" "$BINDIR/git-remote-rad"; say "radicle $RAD_VERSION installed"
 }
 
@@ -70,7 +70,8 @@ install_nak() {
   case "$(arch)" in x86_64) a=amd64 ;; aarch64) a=arm64 ;; *) a=$(arch) ;; esac
   t=$(work_tmp)
   download_pinned "$NAK_BASE/nak-$NAK_VERSION-linux-$a" "$sha" "$t/nak" || { rm -rf "$t"; return 1; }
-  install -m 0755 "$t/nak" "$BINDIR/nak"; rm -rf "$t"; mark nak "$want" "$BINDIR/nak"; say "nak $NAK_VERSION installed"
+  install -m 0755 "$t/nak" "$BINDIR/nak" || { rm -rf "$t"; return 1; }
+  rm -rf "$t"; mark nak "$want" "$BINDIR/nak"; say "nak $NAK_VERSION installed"
 }
 
 install_ngit() {
@@ -89,7 +90,7 @@ install_ngit() {
   for b in ngit git-remote-nostr; do
     f=$(find "$t" -type f -name "$b" | head -n1)
     [ -n "$f" ] || { warn "$b not found in $asset"; rm -rf "$t"; return 1; }
-    install -m 0755 "$f" "$BINDIR/$b"
+    install -m 0755 "$f" "$BINDIR/$b" || { rm -rf "$t"; return 1; }
   done
   rm -rf "$t"; mark ngit "$want" "$BINDIR/ngit" "$BINDIR/git-remote-nostr"; say "ngit $NGIT_VERSION installed"
 }
@@ -114,7 +115,7 @@ install_arweave() {
     [ "$(git rev-parse HEAD)" = "$ARWEAVE_COMMIT" ] &&
     GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
   ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
-  for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b"; done
+  for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b" || { rm -rf "$t"; return 1; }; done
   # The module cache is read-only and about 580 MB with the auto-fetched toolchain.
   GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" go clean -modcache >/dev/null 2>&1
   rm -rf "$GHLESS_PREFIX/go"
@@ -153,8 +154,9 @@ case "$cmd" in
     rc=0; n=0
     for pid in $PIDS; do
       n=$((n + 1))
-      wait "$pid" || { rc=1; warn "$(eval "echo \${$n}") failed"; }
+      wait "$pid"; st=$?
       cat "$LOGS/$n.log" >&2
+      [ "$st" -eq 0 ] || { rc=1; warn "$(eval "echo \${$n}") failed"; }
     done
     exit $rc ;;
   *) die "usage: tools [install [tool...]|status]" ;;

@@ -71,9 +71,11 @@ def bech32(hrp, data):
 
 def read_secret():
     text = sys.stdin.read().strip()
+    if len(text) != 64 or any(c not in "0123456789abcdefABCDEF" for c in text):
+        raise SystemExit("secret must be 64 hex characters")
     k = int(text, 16)
-    if not 0 < k < N or len(text) != 64:
-        raise SystemExit("secret must be 64 hex characters in the curve order")
+    if not 0 < k < N:
+        raise SystemExit("secret is outside the curve order")
     return k
 
 

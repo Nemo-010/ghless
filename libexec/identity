@@ -32,21 +32,31 @@ show() {
 
 export_ids() { # export_ids FILE: tar of every private key, mode 0600
   [ -n "${1:-}" ] || die "usage: identity export FILE"
-  [ ! -e "$1" ] || die "$1 exists; refusing to overwrite"
+  out=$(abspath "$1")
+  [ ! -e "$out" ] || die "$out exists; refusing to overwrite"
   items=""; for f in radicle nostr.key arweave-wallet.json; do [ -e "$GHLESS_DATA/$f" ] && items="$items $f"; done
   [ -n "$items" ] || die "no identities to export (run: ghless identity init)"
   # shellcheck disable=SC2086
-  ( umask 077; cd "$GHLESS_DATA" && tar -czf "$(abspath "$1")" $items ) || die "export failed"
+  ( umask 077; cd "$GHLESS_DATA" && tar -czf "$out" $items ) || die "export failed"
   say "wrote $1 (mode 0600). It holds private keys: store it somewhere safe, never commit it."
 }
 import_ids() { # import_ids FILE: restores keys that do not exist yet
   [ -f "${1:-}" ] || die "usage: identity import FILE"
-  t=$(mktemp -d "${TMPDIR:-/tmp}/ghless-id.XXXXXX"); tar -xzf "$1" -C "$t" || die "not a ghless identity archive"
+  t=$(mktemp -d "${TMPDIR:-/tmp}/ghless-id.XXXXXX")
+  trap 'rm -rf "$t"' EXIT
+  tar -xzf "$1" -C "$t" || die "not a ghless identity archive"
+  if [ -n "$(find "$t" ! -type f ! -type d -print -quit)" ]; then
+    die "archive holds links or special files; refusing to import it"
+  fi
   for f in radicle nostr.key arweave-wallet.json; do
     [ -e "$t/$f" ] || continue
-    if [ -e "$GHLESS_DATA/$f" ]; then warn "$f already exists; kept"; else cp -a "$t/$f" "$GHLESS_DATA/$f" && say "restored $f"; fi
+    if [ -e "$GHLESS_DATA/$f" ]; then warn "$f already exists; kept"; else cp -R "$t/$f" "$GHLESS_DATA/$f" && say "restored $f"; fi
   done
-  rm -rf "$t"; show
+  chmod 600 "$GHLESS_DATA/nostr.key" "$GHLESS_DATA/arweave-wallet.json" 2>/dev/null
+  if [ -s "$GHLESS_DATA/nostr.key" ] && ! grep -qE '^[0-9a-f]{64}$' "$GHLESS_DATA/nostr.key"; then
+    warn "nostr.key is not 64 lowercase hex characters; it was restored but will not work"
+  fi
+  show
 }
 
 case "${1:-show}" in

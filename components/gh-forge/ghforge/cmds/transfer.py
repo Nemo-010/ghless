@@ -72,13 +72,21 @@ def repo_clone(argv, ctx):
     name = owner_repo.split("/")[1]
     target = args[1] if len(args) == 2 else name
     url = "https://github.com/%s.git" % owner_repo
+    if os.path.exists(target) and (not os.path.isdir(target) or os.listdir(target)):
+        raise GhError("destination path %r already exists and is not an empty directory" % target)
+    created = not os.path.exists(target)
     for source in (url, "%s/%s" % (BROKER, url)):
         proc = subprocess.run(["git", "clone"] + gitflags + ["--", source, target], env=_git_env())
         if proc.returncode == 0:
             subprocess.run(["git", "-C", target, "remote", "set-url", "origin", url],
                            capture_output=True)
             return 0
-        shutil.rmtree(target, ignore_errors=True) if not os.path.exists(os.path.join(target, ".git")) else None
+        if created:
+            shutil.rmtree(target, ignore_errors=True)
+        else:
+            for leftover in os.listdir(target):
+                path = os.path.join(target, leftover)
+                shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
     sys.stderr.write("gh: git routes failed; fetching the source tarball (no history)\n")
     tmp = tempfile.mkdtemp(prefix="gh-forge-clone.")
     try:
@@ -86,6 +94,8 @@ def repo_clone(argv, ctx):
         _download(["https://codeload.github.com/%s/tar.gz/HEAD" % owner_repo], archive)
         subprocess.run(["tar", "-xzf", archive, "-C", tmp], check=True)
         top = [d for d in os.listdir(tmp) if os.path.isdir(os.path.join(tmp, d))][0]
+        if not created:
+            os.rmdir(target)
         shutil.move(os.path.join(tmp, top), target)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -98,21 +108,38 @@ def repo_clone(argv, ctx):
 
 
 def _download(urls, dest, headers=None):
-    """First URL that answers wins; each is also tried through the broker."""
+    """First URL that answers wins; each is also tried through the broker.
+    A body shorter than its Content-Length is an error, never a saved file."""
     last = None
-    for base in urls:
-        for url in (base, "%s/%s" % (BROKER, base)):
-            req = urllib.request.Request(url, headers=dict(headers or {}, **{"User-Agent": "gh-forge"}))
-            try:
-                with urllib.request.urlopen(req, timeout=120) as resp, open(dest + ".part", "wb") as out:
-                    shutil.copyfileobj(resp, out)
-                os.replace(dest + ".part", dest)
-                return
-            except (urllib.error.URLError, OSError) as exc:
-                last = exc
-    if os.path.exists(dest + ".part"):
-        os.remove(dest + ".part")
+    part = dest + ".part"
+    parent = os.path.dirname(dest)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    try:
+        for base in urls:
+            for url in (base, "%s/%s" % (BROKER, base)):
+                req = urllib.request.Request(url, headers=dict(headers or {}, **{"User-Agent": "gh-forge"}))
+                try:
+                    with urllib.request.urlopen(req, timeout=120) as resp, open(part, "wb") as out:
+                        want = resp.headers.get("Content-Length")
+                        shutil.copyfileobj(resp, out)
+                    if want is not None and os.path.getsize(part) != int(want):
+                        raise OSError("short read: %d of %s bytes" % (os.path.getsize(part), want))
+                    os.replace(part, dest)
+                    return
+                except (urllib.error.URLError, OSError) as exc:
+                    last = exc
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
     raise GhError("download failed: %s" % last)
+
+
+def _safe_name(name):
+    base = os.path.basename(name or "")
+    if not base or base in (".", "..") or "/" in name or "\\" in name or name != base:
+        raise GhError("refusing asset name %r" % name)
+    return base
 
 
 def _release_download_spec():
@@ -149,6 +176,22 @@ def release_download(argv, ctx):
             raise UsageError("unknown archive format %r, use zip or tar.gz" % fmt)
         ext = "zip" if fmt == "zip" else "tar.gz"
         dest = opts.get("output") or os.path.join(directory, "%s-%s.%s" % (name, tag.lstrip("v"), ext))
+        if dest == "-":
+            tmp = tempfile.mkdtemp(prefix="gh-forge-archive.")
+            try:
+                f = os.path.join(tmp, "a")
+                _download(["https://codeload.github.com/%s/%s/%s/refs/tags/%s" % (owner, name, "zip" if fmt == "zip" else "tar.gz", tag)], f)
+                with open(f, "rb") as fh:
+                    shutil.copyfileobj(fh, sys.stdout.buffer)
+            finally:
+                shutil.rmtree(tmp, ignore_errors=True)
+            return 0
+        if os.path.exists(dest):
+            if opts.get("skip-existing"):
+                return 0
+            if not opts.get("clobber"):
+                raise GhError("%s already exists (use `--clobber` to overwrite file or "
+                              "`--skip-existing` to skip file)" % dest)
         _download(["https://codeload.github.com/%s/%s/%s/refs/tags/%s" %
                    (owner, name, "zip" if fmt == "zip" else "tar.gz", tag)], dest)
         return 0
@@ -161,7 +204,7 @@ def release_download(argv, ctx):
     if opts.get("output") and len(assets) != 1:
         raise GhError("--output requires exactly one matching asset")
     for asset in assets:
-        dest = opts.get("output") or os.path.join(directory, asset["name"])
+        dest = opts.get("output") or os.path.join(directory, _safe_name(asset["name"]))
         if dest != "-" and os.path.exists(dest):
             if opts.get("skip-existing"):
                 continue
@@ -169,14 +212,14 @@ def release_download(argv, ctx):
                 raise GhError("%s already exists (use `--clobber` to overwrite file or "
                               "`--skip-existing` to skip file)" % dest)
         if dest == "-":
-            tmp = tempfile.mktemp(prefix="gh-forge-asset.")
+            tdir = tempfile.mkdtemp(prefix="gh-forge-asset.")
             try:
+                tmp = os.path.join(tdir, "a")
                 _download([asset["browser_download_url"]], tmp)
                 with open(tmp, "rb") as fh:
                     shutil.copyfileobj(fh, sys.stdout.buffer)
             finally:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
+                shutil.rmtree(tdir, ignore_errors=True)
         else:
             _download([asset["browser_download_url"]], dest)
     return 0
@@ -217,13 +260,13 @@ def gist_view(argv, ctx):
         text = files[fname].get("content")
         if text is None:
             raw_url = files[fname].get("raw_url")
-            tmp = tempfile.mktemp(prefix="gh-forge-gist.")
+            tdir = tempfile.mkdtemp(prefix="gh-forge-gist.")
             try:
+                tmp = os.path.join(tdir, "a")
                 _download([raw_url], tmp)
                 with open(tmp, encoding="utf-8", errors="replace") as fh:
                     text = fh.read()
             finally:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
+                shutil.rmtree(tdir, ignore_errors=True)
         output.write_raw(text if text.endswith("\n") else text + "\n")
     return 0

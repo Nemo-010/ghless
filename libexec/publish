@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-DIR="$(cd "${DIR:-.}" && pwd -P)"
+DIR="$(cd "${DIR:-.}" 2>/dev/null && pwd -P)" || die "no such directory: ${DIR:-.}"
 git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
 valid_name "$NAME" || NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^[-.]*//')
@@ -35,17 +35,19 @@ if [ -z "$LANES" ]; then
 fi
 
 if [ "$DRY" = 1 ]; then
+  git -C "$DIR" rev-parse --verify -q HEAD >/dev/null || die "$DIR has no commits to publish"
   say "dry run: would publish $DIR (HEAD $(git -C "$DIR" rev-parse --short HEAD)) as '$NAME' to: $LANES"
+  ready=0
   for l in $(printf '%s' "$LANES" | tr ',' ' '); do
     case "$l" in
-      github) github_authed && echo "github   ready" || echo "github   would be skipped: no working token" ;;
-      radicle) have rad && echo "radicle  ready" || echo "radicle  rad missing (ghless tools install radicle)" ;;
-      nostr) have ngit && echo "nostr    ready" || echo "nostr    ngit missing" ;;
-      arweave) have git-remote-arweave && echo "arweave  ready" || echo "arweave  helper missing" ;;
+      github) if github_authed; then echo "github   ready"; ready=$((ready + 1)); else echo "github   would be skipped: no working token"; fi ;;
+      radicle) if have rad; then echo "radicle  ready"; ready=$((ready + 1)); else echo "radicle  rad missing (ghless tools install radicle)"; fi ;;
+      nostr) if have ngit; then echo "nostr    ready"; ready=$((ready + 1)); else echo "nostr    ngit missing"; fi ;;
+      arweave) if have git-remote-arweave; then echo "arweave  ready"; ready=$((ready + 1)); else echo "arweave  helper missing"; fi ;;
       *) echo "$l  unknown lane" ;;
     esac
   done
-  exit 0
+  [ "$ready" -gt 0 ]; exit $?
 fi
 STAGE="$GHLESS_DATA/publish/$NAME"
 mkdir -p "$STAGE"

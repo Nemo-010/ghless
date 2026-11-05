@@ -28,6 +28,7 @@ for f in "$ROOT/install" "$ROOT"/bin/ghless "$ROOT"/libexec/* "$ROOT"/components
   check "syntax $(basename "$f")" sh -n "$f"
 done
 check "py_compile libexec" python3 -m py_compile "$ROOT/libexec/arweave-wallet.py" "$ROOT/libexec/gitweb-static.py"
+check "gh-forge transfer tests" python3 "$ROOT/tests/test_transfer.py"
 check "ghre unit tests" sh -c "cd '$ROOT/components/ghre' && python3 -m unittest discover -s tests"
 
 spec_case() { # spec expected "owner|repo|ref|path|url"
@@ -231,9 +232,35 @@ check "identity export/import round-trips the same nostr and arweave ids" identi
 status_case() {
   printf '2026-01-01T00:00:00Z\tnostr\tp\tnostr://x\tok\n' > "$T/led.tsv"; mkdir -p "$T/sd"; cp "$T/led.tsv" "$T/sd/published.tsv"
   GHLESS_DATA="$T/sd" "$ROOT/bin/ghless" status | grep -q 'nostr.*ok.*nostr://x' &&
-  "$ROOT/bin/ghless" publish "$FX" --dry-run >/dev/null 2>&1 && "$ROOT/bin/ghless" completion bash | grep -q _ghless
+  { "$ROOT/bin/ghless" publish "$FX" --dry-run 2>&1 | grep -q 'dry run'; } && "$ROOT/bin/ghless" completion bash | grep -q _ghless
 }
 check "status, publish --dry-run and completion work" status_case
+
+hostile_import_case() {
+  mkdir -p "$T/hx"; ln -s /etc/hostname "$T/hx/nostr.key"; (cd "$T/hx" && tar -czf "$T/hostile.tgz" nostr.key)
+  GHLESS_DATA="$T/idH" "$ROOT/bin/ghless" identity import "$T/hostile.tgz" >/dev/null 2>&1 && return 1
+  [ ! -e "$T/idH/nostr.key" ] || return 1
+  (cd "$T" && GHLESS_DATA="$T/idR" "$ROOT/bin/ghless" identity init >/dev/null 2>&1; GHLESS_DATA="$T/idR" "$ROOT/bin/ghless" identity export rel.tgz >/dev/null 2>&1) || return 1
+  [ -f "$T/rel.tgz" ] && [ ! -e "$T/idR/rel.tgz" ]
+}
+check "identity import refuses links; relative export lands in the cwd" hostile_import_case
+
+migrate_case() {
+  H5="$T/home5"; mkdir -p "$H5/.local/bin" "$H5/.local/share/errand/data" "$T/errand-home/bin"
+  echo k > "$H5/.local/share/errand/data/nostr.key"; : > "$T/errand-home/bin/errand"
+  ln -s "$T/errand-home/bin/errand" "$H5/.local/bin/errand"
+  printf 'a=1\n# >>> errand-home >>>\nold\n# <<< errand-home <<<\nb=2\n' > "$H5/.profile"
+  env -u GHLESS_PREFIX -u GHLESS_DATA -u GHLESS_WORK HOME="$H5" XDG_DATA_HOME= "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  [ ! -e "$H5/.local/bin/errand" ] && ! grep -q 'errand-home' "$H5/.profile" && grep -q '^b=2$' "$H5/.profile" && [ -f "$H5/.local/share/ghless/data/nostr.key" ]
+}
+check "install migrates old errand-home links, profile block and identities" migrate_case
+
+dry_case() {
+  "$ROOT/bin/ghless" publish "$FX" --dry-run --lanes bogus >/dev/null 2>&1 && return 1
+  "$ROOT/bin/ghless" publish "$T/nonexistent" --dry-run >"$T/dr.out" 2>&1 && return 1
+  grep -q 'no such directory' "$T/dr.out"
+}
+check "dry-run fails like the real run: no ready lane, missing directory" dry_case
 
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
