@@ -113,7 +113,7 @@ install_arweave() {
   (
     cd "$t/src" && git checkout -q FETCH_HEAD &&
     [ "$(git rev-parse HEAD)" = "$ARWEAVE_COMMIT" ] &&
-    GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
+    GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git 2>"$t/go-build.log" || { tail -n 15 "$t/go-build.log" >&2; exit 1; }
   ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
   for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b" || { rm -rf "$t"; return 1; }; done
   # The module cache is read-only and about 580 MB with the auto-fetched toolchain.

@@ -138,6 +138,11 @@ def list_issues(argv, ctx):
         if not isinstance(items, list):
             items = []
 
+    if not items:
+        info = ctx.backend.data("repos/%s/%s" % (owner, name))
+        if isinstance(info, dict) and info.get("has_issues") is False:
+            raise UsageError("the '%s' repository has disabled issues" % repo)
+
     comments = _maybe_comments(ctx, owner, name, items, requested, False)
     names = ctx.resolve_names(
         [login for item in items for login in shape.logins_in(item)])

@@ -186,18 +186,10 @@ net_run() {
   "$@"
 }
 
-# nostr_keygen: a new secret key (hex) on stdout. nak when it runs, else Python
-# (nak is a glibc binary and cannot run on musl hosts such as Alpine).
-nostr_keygen() {
-  if nak --version >/dev/null 2>&1; then nak key generate
-  else python3 "$GHLESS_HOME/libexec/nostr-key.py" gen; fi
-}
-
-# nostr_npub FILE: the npub of the hex secret stored in FILE.
-nostr_npub() {
-  if nak --version >/dev/null 2>&1; then nak key public < "$1" | nak encode npub
-  else python3 "$GHLESS_HOME/libexec/nostr-key.py" npub < "$1"; fi
-}
+# nostr_keygen / nostr_npub use the Python implementation (checked against nak on
+# random keys in tests), so nak never writes ~/.config/nak and also runs on musl.
+nostr_keygen() { python3 "$GHLESS_HOME/libexec/nostr-key.py" gen; }
+nostr_npub() { python3 "$GHLESS_HOME/libexec/nostr-key.py" npub < "$1"; }
 
 # detach_run LOG CMD...: start CMD in its own session, output to LOG, surviving
 # this shell. `setsid -f` is not portable (busybox lacks -f), so the command is

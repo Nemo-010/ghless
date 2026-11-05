@@ -62,6 +62,7 @@ git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user
 git_safe -C "$STAGE" fetch -q "$DIR" '+HEAD:refs/heads/incoming' || die "cannot read HEAD of $DIR"
 git -C "$STAGE" checkout -q -f -B main incoming
 printf '%s' "$DIR" > "$STAGE/.git/ghless-source"
+git -C "$DIR" config ghless.name "$NAME" 2>/dev/null || true
 HEADSHA=$(git -C "$STAGE" rev-parse --short HEAD)
 say "staging $NAME at $HEADSHA (lanes: $LANES)"
 

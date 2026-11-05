@@ -308,6 +308,22 @@ copies_case() {
 }
 check "tunnel page links every other copy and the archive download" copies_case
 
+name_continuity_case() {
+  C="$T/cont"; git clone -q "$FX" "$C"
+  "$ROOT/bin/ghless" publish "$C" --name contname --lanes none >/dev/null 2>&1
+  [ "$(git -C "$C" config --get ghless.name)" = contname ] || return 1
+  "$ROOT/bin/ghless" archive "$C" --no-net >/dev/null 2>&1 && ls -d "$GHLESS_DATA"/archive/contname-* >/dev/null 2>&1
+}
+check "publish records the project name; archive and serve reuse it" name_continuity_case
+
+export_small_case() {
+  GHLESS_DATA="$T/idS" "$ROOT/bin/ghless" identity init >/dev/null 2>&1 || return 1
+  mkdir -p "$T/idS/radicle/node"; head -c 3000000 /dev/zero > "$T/idS/radicle/node/node.db"
+  GHLESS_DATA="$T/idS" "$ROOT/bin/ghless" identity export "$T/small.tgz" >/dev/null 2>&1 || return 1
+  [ "$(wc -c < "$T/small.tgz")" -lt 20000 ] && ! tar -tzf "$T/small.tgz" | grep -q node.db
+}
+check "identity export holds keys only, not the node database" export_small_case
+
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
   "$ROOT/bin/ghless" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1

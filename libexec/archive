@@ -33,6 +33,7 @@ $(abspath "$2")" ;; esac
 done
 DIR="$(cd "${DIR:-.}" && pwd)"
 git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
+[ -n "$NAME" ] || NAME=$(git -C "$DIR" config --get ghless.name 2>/dev/null || true)
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
 valid_name "$NAME" || die "bad name '$NAME': letters, digits, . _ -, not starting with . or -; pass --name"
 TS=$(date -u +%Y%m%dT%H%M%SZ)

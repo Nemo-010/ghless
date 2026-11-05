@@ -29,7 +29,7 @@ while [ "$i" -lt "$n_args" ]; do
   case "$a" in
     -*) die "unknown option: $a" ;;
     *=*) n="${a%%=*}"; p="${a#*=}" ;;
-    *) p="$a"; n=$(basename "$(cd "$a" 2>/dev/null && pwd)") ;;
+    *) p="$a"; n=$(git -C "$a" config --get ghless.name 2>/dev/null || true); [ -n "$n" ] || n=$(basename "$(cd "$a" 2>/dev/null && pwd)") ;;
   esac
   [ -d "$p" ] || die "no such directory: $p"
   valid_name "$n" || die "bad name '$n': letters, digits, . _ -, not starting with . or -"
