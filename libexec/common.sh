@@ -1,26 +1,26 @@
 # Shared shell helpers. Sourced by install and every libexec/ command.
 # shellcheck shell=sh
 
-: "${ERRAND_HOME:?ERRAND_HOME must be set before sourcing common.sh}"
+: "${GHLESS_HOME:?GHLESS_HOME must be set before sourcing common.sh}"
 if [ -z "${HOME:-}" ]; then
   HOME=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
-  [ -n "$HOME" ] || { echo "errand: error: HOME is not set" >&2; exit 1; }
+  [ -n "$HOME" ] || { echo "ghless: error: HOME is not set" >&2; exit 1; }
   export HOME
 fi
-ERRAND_PREFIX="${ERRAND_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/errand}"
-ERRAND_DATA="${ERRAND_DATA:-$ERRAND_PREFIX/data}"
-ERRAND_BIN="${ERRAND_BIN:-$HOME/.local/bin}"
-ERRAND_WORK="${ERRAND_WORK:-$ERRAND_DATA/work}"
-export ERRAND_HOME ERRAND_PREFIX ERRAND_DATA ERRAND_BIN ERRAND_WORK
-PATH="$ERRAND_PREFIX/bin:$PATH"
+GHLESS_PREFIX="${GHLESS_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/ghless}"
+GHLESS_DATA="${GHLESS_DATA:-$GHLESS_PREFIX/data}"
+GHLESS_BIN="${GHLESS_BIN:-$HOME/.local/bin}"
+GHLESS_WORK="${GHLESS_WORK:-$GHLESS_DATA/work}"
+export GHLESS_HOME GHLESS_PREFIX GHLESS_DATA GHLESS_BIN GHLESS_WORK
+PATH="$GHLESS_PREFIX/bin:$PATH"
 export PATH
 
 # shellcheck disable=SC1091
-. "$ERRAND_HOME/pins/pins.env"
+. "$GHLESS_HOME/pins/pins.env"
 
-say() { printf 'errand: %s\n' "$*" >&2; }
-warn() { printf 'errand: warning: %s\n' "$*" >&2; }
-die() { printf 'errand: error: %s\n' "$*" >&2; exit 1; }
+say() { printf 'ghless: %s\n' "$*" >&2; }
+warn() { printf 'ghless: warning: %s\n' "$*" >&2; }
+die() { printf 'ghless: error: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -101,13 +101,13 @@ valid_name() {
 # export_tree SRC DEST: copy SRC to DEST without .git or secrets.
 #  - a git checkout: tracked files only (git ls-files), so untracked or ignored
 #    keys can never travel;
-#  - errand-home itself, not a checkout: only the shipped top-level entries;
+#  - ghless itself, not a checkout: only the shipped top-level entries;
 #  - any other directory: everything except common secret file names.
 export_tree() {
   mkdir -p "$2"
   if git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1 && [ "$(git -C "$1" rev-parse --show-toplevel)" = "$(cd "$1" && pwd)" ]; then
     git -C "$1" ls-files -z | (cd "$1" && tar --null -T - -cf -) | (cd "$2" && tar -xf -)
-  elif [ "$(cd "$1" && pwd)" = "$(cd "$ERRAND_HOME" && pwd)" ]; then
+  elif [ "$(cd "$1" && pwd)" = "$(cd "$GHLESS_HOME" && pwd)" ]; then
     for _e in install README.md VERSION .gitignore bin libexec components reference docs skill pins tests; do
       [ -e "$1/$_e" ] && (cd "$1" && tar --exclude=__pycache__ --exclude='*.pyc' --exclude=work \
         --exclude='*.key' --exclude='*wallet*.json' --exclude='.env' --exclude='.env.*' -cf - "$_e") | (cd "$2" && tar -xf -)
@@ -140,8 +140,8 @@ PY
 
 # ledger_add LANE PROJECT URL STATUS
 ledger_add() {
-  mkdir -p "$ERRAND_DATA"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" "$4" >> "$ERRAND_DATA/published.tsv"
+  mkdir -p "$GHLESS_DATA"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" "$4" >> "$GHLESS_DATA/published.tsv"
 }
 
 # direct_tcp HOST PORT: true when this host can open the TCP connection itself.
@@ -155,7 +155,7 @@ except Exception:
 PY
 }
 
-export CFRS_STATE_DIR="${CFRS_STATE_DIR:-$ERRAND_DATA/cfrs}"
+export CFRS_STATE_DIR="${CFRS_STATE_DIR:-$GHLESS_DATA/cfrs}"
 
 # free_port: a TCP port nothing listens on right now (forwards are host-global).
 free_port() {
@@ -172,9 +172,9 @@ warp_up() {
 }
 
 # net_run CMD...: run through WARP when this host cannot reach the open internet
-# by itself, otherwise run directly. ERRAND_WARP=0 forces direct, =1 forces WARP.
+# by itself, otherwise run directly. GHLESS_WARP=0 forces direct, =1 forces WARP.
 net_run() {
-  case "${ERRAND_WARP:-auto}" in
+  case "${GHLESS_WARP:-auto}" in
     0) "$@"; return ;;
     1) warp_up && { cfrs warp exec -- "$@"; return; } ;;
     *) if ! direct_tcp relay.ngit.dev 443; then

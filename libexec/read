@@ -1,15 +1,15 @@
 #!/bin/sh
 # read: print one file, or the README, of a public repo without cloning.
-#   errand read SPEC [PATH] [REF]
+#   ghless read SPEC [PATH] [REF]
 # Routes: raw.githubusercontent.com, the same through the broker, the forge API.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
-. "$ERRAND_HOME/libexec/spec.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
+. "$GHLESS_HOME/libexec/spec.sh"
 
-[ $# -ge 1 ] || die "usage: errand read SPEC [PATH] [REF]"
+[ $# -ge 1 ] || die "usage: ghless read SPEC [PATH] [REF]"
 parse_spec "$1" || die "cannot understand: $1"
-[ "$S_GITHUB" = 1 ] || die "read supports github.com specs; use errand fetch for other hosts"
+[ "$S_GITHUB" = 1 ] || die "read supports github.com specs; use ghless fetch for other hosts"
 [ -z "$S_EXTRA" ] || die "unsupported GitHub URL path '$S_EXTRA'; read supports owner/repo, tree/ and blob/ URLs (releases and issues: use gh)"
 P="${2:-$S_PATH}"; REF="${3:-$S_REF}"
 FORGE=https://forge.web.pkgforge.dev/github

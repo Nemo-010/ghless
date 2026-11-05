@@ -4,7 +4,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NET=0; [ "${1:-}" = "--net" ] && NET=1
-T=$(mktemp -d "${TMPDIR:-/tmp}/errand-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/ghless-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0; SKIP=0
 IS_GIT=0; [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$ROOT" ] && IS_GIT=1
@@ -22,7 +22,7 @@ refuse() { # refuse NAME CMD... : passes only when the command exits non-zero
   if "$@" >"$T/out" 2>&1; then bad "$n (accepted bad input)"; else ok "$n"; fi
 }
 
-for f in "$ROOT/install" "$ROOT"/bin/errand "$ROOT"/libexec/* "$ROOT"/components/bulk-archive/bin/*.sh; do
+for f in "$ROOT/install" "$ROOT"/bin/ghless "$ROOT"/libexec/* "$ROOT"/components/bulk-archive/bin/*.sh; do
   case "$f" in *.py|*.sh.orig) continue ;; esac
   head -n1 "$f" | grep -q 'sh' || continue
   check "syntax $(basename "$f")" sh -n "$f"
@@ -46,10 +46,10 @@ FX="$T/fx"; mkdir "$FX"
 git -C "$FX" init -q -b main
 printf '# fixture\nhello\n' > "$FX/README.md"; printf 'a\n' > "$FX/a.txt"
 git -C "$FX" add -A; git -C "$FX" -c user.name=t -c user.email=t@t commit -qm base
-git -C "$FX" tag errand/source-base
+git -C "$FX" tag ghless/source-base
 printf 'b\n' > "$FX/b.txt"; git -C "$FX" add -A; git -C "$FX" -c user.name=t -c user.email=t@t commit -qm change
 
-export ERRAND_HOME="$ROOT" ERRAND_PREFIX="$T/prefix" ERRAND_DATA="$T/data"
+export GHLESS_HOME="$ROOT" GHLESS_PREFIX="$T/prefix" GHLESS_DATA="$T/data"
 
 pub_case() {
   python3 "$ROOT/libexec/gitweb-static.py" "$T/pub" fx="$FX" || return 1
@@ -64,12 +64,12 @@ pub_case() {
 check "gitweb index builds and clones over plain http" pub_case
 
 arch_case() {
-  "$ROOT/bin/errand" archive "$FX" --no-net >"$T/arch.out" 2>&1 || return 1
+  "$ROOT/bin/ghless" archive "$FX" --no-net >"$T/arch.out" 2>&1 || return 1
   z=$(tail -n1 "$T/arch.out"); [ -f "$z" ] || return 1
   d="${z%.zip}"
   (cd "$d" && sha256sum -c MANIFEST.sha256 >/dev/null) || return 1
   [ -f "$d/changes.patch" ] && [ -f "$d/source-base.bundle" ] && [ -f "$d/full.bundle" ] || return 1
-  git clone -q "$d/source-base.bundle" "$T/base" 2>/dev/null; git -C "$T/base" checkout -q errand/source-base &&
+  git clone -q "$d/source-base.bundle" "$T/base" 2>/dev/null; git -C "$T/base" checkout -q ghless/source-base &&
     git -C "$T/base" -c user.name=t -c user.email=t@t am -q < "$d/changes.patch" || return 1
   [ "$(git -C "$T/base" rev-parse HEAD^{tree})" = "$(git -C "$FX" rev-parse HEAD^{tree})" ]
 }
@@ -94,10 +94,10 @@ refuse "arweave wallet refuses to overwrite" "$ROOT/libexec/arweave-wallet.py" "
 
 pack_case() {
   mkdir "$T/packsrc" && (cd "$ROOT" && tar --exclude=.git -cf - .) | (cd "$T/packsrc" && tar -xf -)
-  ERRAND_HOME="$T/packsrc" "$T/packsrc/bin/errand" pack "$T/p.zip" >/dev/null 2>&1 || return 1
+  GHLESS_HOME="$T/packsrc" "$T/packsrc/bin/ghless" pack "$T/p.zip" >/dev/null 2>&1 || return 1
   (cd "$T" && sha256sum -c p.zip.sha256 >/dev/null) || return 1
   mkdir "$T/unz" && (cd "$T/unz" && unzip -q ../p.zip) || return 1
-  [ -x "$T/unz/errand-home/install" ] && [ -x "$T/unz/errand-home/bin/errand" ]
+  [ -x "$T/unz/ghless/install" ] && [ -x "$T/unz/ghless/bin/ghless" ]
 }
 check "pack keeps execute bits and checksum" pack_case
 
@@ -110,7 +110,7 @@ bulk_case() {
 check "bulk-archive stdin leaves no temp file" bulk_case
 
 lane_refuses() { # a publish lane must not report ok without its tool
-  PATH="/usr/bin:/bin" ERRAND_PREFIX="$T/empty" "$ROOT/bin/errand" publish "$FX" --name t --lanes radicle,nostr,arweave >"$T/pub.out" 2>&1
+  PATH="/usr/bin:/bin" GHLESS_PREFIX="$T/empty" "$ROOT/bin/ghless" publish "$FX" --name t --lanes radicle,nostr,arweave >"$T/pub.out" 2>&1
   [ $? -ne 0 ] && ! grep -q ' ok ' "$T/pub.out" && [ "$(grep -c 'not installed' "$T/pub.out")" -ge 3 ]
 }
 check "publish exits non-zero when no lane can run" lane_refuses
@@ -123,37 +123,37 @@ split_case() {
     [ "$(git -C "$T/parts/$pn" archive HEAD | gzip -9 | wc -c)" -le 31000 ] || { echo "$pn too big"; return 1; }
     git -C "$T/parts/$pn" archive HEAD | tar -x -C "$T/joined" || return 1
   done
-  for f in install bin/errand libexec/publish components/gh-forge/ghforge/jqish.py reference/cfrs-field-report/cfrs-field-report.md; do
+  for f in install bin/ghless libexec/publish components/gh-forge/ghforge/jqish.py reference/cfrs-field-report/cfrs-field-report.md; do
     git -C "$ROOT" show "HEAD:$f" | cmp -s - "$T/joined/$f" || { echo "$f differs after reassembly"; return 1; }
   done
 }
 gitcheck "arweave split parts reassemble to the same files" split_case
 
 fetch_pos_case() {
-  "$ROOT/bin/errand" fetch "file://$FX" "$T/fp" >/dev/null 2>&1 || return 1
-  [ "$(git -C "$T/fp" config errand.route)" = direct ] &&
-  [ "$(git -C "$T/fp" rev-parse errand/source-base)" = "$(git -C "$FX" rev-parse HEAD)" ] &&
-  [ "$(git -C "$T/fp" branch --show-current)" = errand/work ] &&
-  "$ROOT/bin/errand" fetch "file://$FX" "$T/fp" >/dev/null 2>&1
+  "$ROOT/bin/ghless" fetch "file://$FX" "$T/fp" >/dev/null 2>&1 || return 1
+  [ "$(git -C "$T/fp" config ghless.route)" = direct ] &&
+  [ "$(git -C "$T/fp" rev-parse ghless/source-base)" = "$(git -C "$FX" rev-parse HEAD)" ] &&
+  [ "$(git -C "$T/fp" branch --show-current)" = ghless/work ] &&
+  "$ROOT/bin/ghless" fetch "file://$FX" "$T/fp" >/dev/null 2>&1
 }
-check "fetch clones, tags errand/source-base, opens errand/work, re-run is a no-op" fetch_pos_case
+check "fetch clones, tags ghless/source-base, opens ghless/work, re-run is a no-op" fetch_pos_case
 
 offline_install_case() {
   H3="$T/home3"; mkdir -p "$H3/.local/bin"
-  printf 'top=1\n# >>> errand-home >>>\nold\n# <<< errand-home <<<\nmid=2\n# >>> errand-home >>>\nstale=3\nlast=4\n' > "$H3/.profile"
+  printf 'top=1\n# >>> ghless >>>\nold\n# <<< ghless <<<\nmid=2\n# >>> ghless >>>\nstale=3\nlast=4\n' > "$H3/.profile"
   printf '# mine' > "$H3/.zshrc"
   ln -s /bin/true "$H3/.local/bin/gh"
-  HOME="$H3" ERRAND_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill >"$T/oi.out" 2>&1
+  HOME="$H3" GHLESS_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill >"$T/oi.out" 2>&1
   [ $? -ne 0 ] || { echo "install exited 0 despite an unterminated block"; return 1; }
   grep -q '^last=4$' "$H3/.profile" && grep -q '^stale=3$' "$H3/.profile" || { echo "profile lines were lost"; return 1; }
   [ "$(readlink "$H3/.local/bin/gh")" = /bin/true ] || { echo "foreign gh link was replaced"; return 1; }
-  HOME="$H3" ERRAND_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1
+  HOME="$H3" GHLESS_PREFIX="$H3/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1
   H4="$T/home4"; mkdir -p "$H4"; printf '# mine' > "$H4/.profile"
-  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
-  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
-  sh -n "$H4/.profile" && [ "$(grep -c '>>> errand-home' "$H4/.profile")" = 1 ] && grep -q '^# mine$' "$H4/.profile" &&
-  HOME="$H4" ERRAND_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1 &&
-  [ "$(cat "$H4/.profile")" = "# mine" ] && [ ! -e "$H4/.local/bin/errand" ]
+  HOME="$H4" GHLESS_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  HOME="$H4" GHLESS_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  sh -n "$H4/.profile" && [ "$(grep -c '>>> ghless' "$H4/.profile")" = 1 ] && grep -q '^# mine$' "$H4/.profile" &&
+  HOME="$H4" GHLESS_PREFIX="$H4/p" "$ROOT/install" --no-tools --no-skill --uninstall >/dev/null 2>&1 &&
+  [ "$(cat "$H4/.profile")" = "# mine" ] && [ ! -e "$H4/.local/bin/ghless" ]
 }
 check "install: profile edits are safe, idempotent and reversible; foreign links kept" offline_install_case
 
@@ -162,10 +162,10 @@ pack_ignored_case() {
   cp -a "$ROOT/." "$T/pk2/" 2>/dev/null; rm -rf "$T/pk2/.git"; git clone -q "$ROOT" "$T/pk3" 2>/dev/null
   (cd "$T/pk3" && git ls-files -z | head -c0)
   mkdir -p "$T/pk3/components/ghre/work"; echo K > "$T/pk3/components/ghre/work/nostr.key"; echo K > "$T/pk3/tests/arweave-wallet.json"
-  ERRAND_HOME="$T/pk3" "$T/pk3/bin/errand" pack "$T/pk3.zip" >/dev/null 2>&1 || return 1
+  GHLESS_HOME="$T/pk3" "$T/pk3/bin/ghless" pack "$T/pk3.zip" >/dev/null 2>&1 || return 1
   ! unzip -l "$T/pk3.zip" | grep -qE 'nostr.key|arweave-wallet.json'
   [ $? -eq 0 ] || return 1
-  ERRAND_HOME="$T/pk2" "$T/pk2/bin/errand" pack "$T/pk2.zip" >/dev/null 2>&1 || return 1
+  GHLESS_HOME="$T/pk2" "$T/pk2/bin/ghless" pack "$T/pk2.zip" >/dev/null 2>&1 || return 1
   ! unzip -l "$T/pk2.zip" | grep -qE 'nostr.key|arweave-wallet.json'
 }
 gitcheck "pack never ships untracked or ignored key files (git and non-git trees)" pack_ignored_case
@@ -174,8 +174,8 @@ binary_case() {
   B="$T/binrepo"; mkdir "$B"; git -C "$B" init -q -b main; head -c 2000 /dev/urandom > "$B/b.dat"; git -C "$B" add -A
   git -C "$B" -c user.name=t -c user.email=t@t commit -qm b
   cp "$B/b.dat" "$T/b.orig"; head -c 2000 /dev/urandom > "$B/b.dat"; cp "$B/b.dat" "$T/b.new"
-  "$ROOT/bin/errand" archive "$B" --no-net >"$T/bin.out" 2>&1 || return 1
-  d=$(ls -d "$ERRAND_DATA"/archive/binrepo-*/ | head -n1)
+  "$ROOT/bin/ghless" archive "$B" --no-net >"$T/bin.out" 2>&1 || return 1
+  d=$(ls -d "$GHLESS_DATA"/archive/binrepo-*/ | head -n1)
   git clone -q "$d/full.bundle" "$T/binrest" 2>/dev/null && git -C "$T/binrest" apply "$d/uncommitted.patch" && cmp -s "$T/binrest/b.dat" "$T/b.new"
 }
 check "archive keeps uncommitted binary changes" binary_case
@@ -193,28 +193,28 @@ check "gitweb tolerates submodule entries, re-runs, and leaks no local path" git
 
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
-  "$ROOT/bin/errand" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
-  "$ROOT/bin/errand" fetch "file://$FX" "$T/i2" --depth "1 --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
-  "$ROOT/bin/errand" fetch "file://$FX --upload-pack=$T/evil.sh" "$T/i3" >/dev/null 2>&1 && return 1
+  "$ROOT/bin/ghless" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
+  "$ROOT/bin/ghless" fetch "file://$FX" "$T/i2" --depth "1 --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
+  "$ROOT/bin/ghless" fetch "file://$FX --upload-pack=$T/evil.sh" "$T/i3" >/dev/null 2>&1 && return 1
   [ ! -e "$T/PWNED" ]
 }
 check "fetch refuses option injection through ref, depth and spec" inject_case
 
 name_case() {
   for bad in .. . ...; do
-    "$ROOT/bin/errand" publish "$FX" --name "$bad" --lanes none >"$T/nm.out" 2>&1
+    "$ROOT/bin/ghless" publish "$FX" --name "$bad" --lanes none >"$T/nm.out" 2>&1
     grep -q 'no usable name' "$T/nm.out" || { echo "name '$bad' was not refused for its name: $(cat "$T/nm.out")"; return 1; }
   done
-  mkdir -p "$ERRAND_DATA" && : > "$ERRAND_DATA/nostr.key"
-  python3 "$ROOT/libexec/gitweb-static.py" "$ERRAND_DATA/pub" "..=$FX" >/dev/null 2>&1 && return 1
-  [ -e "$ERRAND_DATA/nostr.key" ] && [ ! -d "$ERRAND_DATA/.git" ]
+  mkdir -p "$GHLESS_DATA" && : > "$GHLESS_DATA/nostr.key"
+  python3 "$ROOT/libexec/gitweb-static.py" "$GHLESS_DATA/pub" "..=$FX" >/dev/null 2>&1 && return 1
+  [ -e "$GHLESS_DATA/nostr.key" ] && [ ! -d "$GHLESS_DATA/.git" ]
 }
 check "names like .. are refused by publish and gitweb, data dir untouched" name_case
 
 collide_case() {
-  "$ROOT/bin/errand" publish "$FX" --name same --lanes none >/dev/null 2>&1
+  "$ROOT/bin/ghless" publish "$FX" --name same --lanes none >/dev/null 2>&1
   FX2="$T/fx2"; mkdir "$FX2"; git -C "$FX2" init -q -b main; : > "$FX2/f"; git -C "$FX2" add f; git -C "$FX2" -c user.name=t -c user.email=t@t commit -qm other
-  "$ROOT/bin/errand" publish "$FX2" --name same --lanes none >"$T/col.out" 2>&1 && return 1
+  "$ROOT/bin/ghless" publish "$FX2" --name same --lanes none >"$T/col.out" 2>&1 && return 1
   grep -q 'already publishes' "$T/col.out"
 }
 check "two projects cannot share a publish name" collide_case
@@ -223,15 +223,15 @@ pack_git_case() {
   git clone -q "$ROOT" "$T/packgit" 2>/dev/null || return 1
   [ -n "$(git -C "$ROOT" status --porcelain)" ] && { cp -a "$ROOT/." "$T/packgit/"; git -C "$T/packgit" add -A; git -C "$T/packgit" -c user.name=t -c user.email=t@t commit -qm wip; }
   mkdir -p "$T/packgit/state"; echo SECRETKEY > "$T/packgit/state/nostr.key"
-  ERRAND_HOME="$T/packgit" "$T/packgit/bin/errand" pack "$T/pg.zip" >/dev/null 2>&1 || return 1
-  ! unzip -l "$T/pg.zip" | grep -q 'nostr.key' && unzip -l "$T/pg.zip" | grep -q 'errand-home/install'
+  GHLESS_HOME="$T/packgit" "$T/packgit/bin/ghless" pack "$T/pg.zip" >/dev/null 2>&1 || return 1
+  ! unzip -l "$T/pg.zip" | grep -q 'nostr.key' && unzip -l "$T/pg.zip" | grep -q 'ghless/install'
 }
 gitcheck "pack of a dirty checkout never contains key files" pack_git_case
 
 noshallow_case() {
   SH="$T/shallow"; git clone -q --depth 1 "file://$FX" "$SH" 2>/dev/null
   echo wip > "$SH/untracked.txt"
-  (cd "$T" && "$ROOT/bin/errand" archive "$SH" --no-net --out relout >"$T/ns.out" 2>&1) || return 1
+  (cd "$T" && "$ROOT/bin/ghless" archive "$SH" --no-net --out relout >"$T/ns.out" 2>&1) || return 1
   [ "$(git -C "$SH" rev-parse --is-shallow-repository)" = true ] || return 1
   z=$(ls "$T"/relout/*/untracked.tar.gz 2>/dev/null | head -n1); [ -n "$z" ]
 }
@@ -246,40 +246,40 @@ spn_case() {
 check "spn2 keeps the access key off curl's argv" spn_case
 
 if [ "$NET" = 1 ]; then
-  check "read README (live)" sh -c "'$ROOT/bin/errand' read octocat/Hello-World | head -c 20 | grep -q ."
-  check "fetch live" sh -c "'$ROOT/bin/errand' fetch octocat/Hello-World '$T/hw' --depth 1 >/dev/null 2>&1 && git -C '$T/hw' rev-parse errand/source-base"
+  check "read README (live)" sh -c "'$ROOT/bin/ghless' read octocat/Hello-World | head -c 20 | grep -q ."
+  check "fetch live" sh -c "'$ROOT/bin/ghless' fetch octocat/Hello-World '$T/hw' --depth 1 >/dev/null 2>&1 && git -C '$T/hw' rev-parse ghless/source-base"
 
   pin_refusal() {
     cp -a "$ROOT" "$T/badroot" && sed -i 's/^NAK_SHA_x86_64=.*/NAK_SHA_x86_64="0000000000000000000000000000000000000000000000000000000000000000"/; s/^NAK_SHA_aarch64=.*/NAK_SHA_aarch64="0000000000000000000000000000000000000000000000000000000000000000"/' "$T/badroot/pins/pins.env"
-    ERRAND_HOME="$T/badroot" ERRAND_PREFIX="$T/badprefix" "$T/badroot/libexec/tools" install nak >"$T/bad.out" 2>&1
+    GHLESS_HOME="$T/badroot" GHLESS_PREFIX="$T/badprefix" "$T/badroot/libexec/tools" install nak >"$T/bad.out" 2>&1
     rc=$?
     [ $rc -ne 0 ] && [ ! -e "$T/badprefix/bin/nak" ] && grep -q 'sha256 mismatch' "$T/bad.out"
   }
   check "tampered pin is refused and leaves no binary" pin_refusal
 
   tamper_case() {
-    ERRAND_HOME="$ROOT" ERRAND_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
+    GHLESS_HOME="$ROOT" GHLESS_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
     printf '#!/bin/sh\necho fake\n' > "$T/tp/bin/nak"
-    ERRAND_HOME="$ROOT" ERRAND_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
+    GHLESS_HOME="$ROOT" GHLESS_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
     [ "$(sha256sum "$T/tp/bin/nak" | cut -d' ' -f1)" = "$(grep '^NAK_SHA_x86_64' "$ROOT/pins/pins.env" | cut -d'"' -f2)" ] || [ "$(uname -m)" != x86_64 ]
   }
   check "a replaced binary is reinstalled, not trusted" tamper_case
 
   install_case() {
     H="$T/home"; mkdir -p "$H"
-    HOME="$H" ERRAND_PREFIX="$H/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >"$T/i1.out" 2>&1 || return 1
-    HOME="$H" ERRAND_PREFIX="$H/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >"$T/i2.out" 2>&1 || return 1
+    HOME="$H" GHLESS_PREFIX="$H/p" GHLESS_DATA= "$ROOT/install" --core --no-skill >"$T/i1.out" 2>&1 || return 1
+    HOME="$H" GHLESS_PREFIX="$H/p" GHLESS_DATA= "$ROOT/install" --core --no-skill >"$T/i2.out" 2>&1 || return 1
     grep -q 'already installed' "$T/i2.out" || return 1
-    [ "$(grep -c '>>> errand-home' "$H/.profile")" = 1 ] || return 1
-    [ -L "$H/.local/bin/errand" ] && [ -x "$H/p/bin/cfrs" ] || return 1
+    [ "$(grep -c '>>> ghless' "$H/.profile")" = 1 ] || return 1
+    [ -L "$H/.local/bin/ghless" ] && [ -x "$H/p/bin/cfrs" ] || return 1
     # profile without trailing newline, existing real gh, unterminated marker
     H2="$T/home2"; mkdir -p "$H2/.local/bin"
     printf '# mine' > "$H2/.profile"; printf 'echo realgh\n' > "$H2/.local/bin/gh"
-    printf 'a=1\n# >>> errand-home >>>\nb=2\n' > "$H2/.bashrc"
-    HOME="$H2" ERRAND_PREFIX="$H2/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
-    HOME="$H2" ERRAND_PREFIX="$H2/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
+    printf 'a=1\n# >>> ghless >>>\nb=2\n' > "$H2/.bashrc"
+    HOME="$H2" GHLESS_PREFIX="$H2/p" GHLESS_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
+    HOME="$H2" GHLESS_PREFIX="$H2/p" GHLESS_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
     sh -n "$H2/.profile" || return 1
-    [ "$(grep -c '>>> errand-home' "$H2/.profile")" = 1 ] || return 1
+    [ "$(grep -c '>>> ghless' "$H2/.profile")" = 1 ] || return 1
     grep -q '^# mine$' "$H2/.profile" || return 1
     [ "$(cat "$H2/.local/bin/gh")" = "echo realgh" ] || return 1
     [ "$(wc -l < "$H2/.bashrc")" = 3 ]

@@ -1,18 +1,18 @@
 #!/bin/sh
 # archive: keep a recoverable copy of the source you studied and of your changes.
-#   errand archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--public-url URL ...] [--extra PATH ...]
+#   ghless archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--public-url URL ...] [--extra PATH ...]
 # --extra copies a file or directory (for example the zips you studied) into extra/.
 # Offline part (always): git bundles (upstream base, your changes, everything),
 # a patch series, a tarball of HEAD, SHA-256 manifest, recovery notes, one zip.
 # Network part (skipped by --no-net), each step independent and logged to
 # NETWORK.tsv: Software Heritage "save code now" for the upstream URL and any
 # --public-url, Wayback Save Page Now (anonymous), ghre snapshot of the upstream
-# issues and pull requests (stops after ERRAND_SNAPSHOT_SECS, default 300). --deep adds ghre's per-page captures through the
+# issues and pull requests (stops after GHLESS_SNAPSHOT_SECS, default 300). --deep adds ghre's per-page captures through the
 # pkgforge archive broker (slow: minutes to hours, resumable).
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
-. "$ERRAND_HOME/libexec/spec.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
+. "$GHLESS_HOME/libexec/spec.sh"
 
 DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""; EXTRAS=""
 while [ $# -gt 0 ]; do
@@ -35,12 +35,12 @@ git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repo
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
 valid_name "$NAME" || die "bad name '$NAME': letters, digits, . _ -, not starting with . or -; pass --name"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
-OUT="${OUT:-$ERRAND_DATA/archive}/$NAME-$TS"
+OUT="${OUT:-$GHLESS_DATA/archive}/$NAME-$TS"
 mkdir -p "$OUT"
 G() { git -C "$DIR" "$@"; }
 
-UPSTREAM=$(G config --get errand.source 2>/dev/null || true)
-HAS_BASE=0; G rev-parse -q --verify refs/tags/errand/source-base >/dev/null 2>&1 && HAS_BASE=1
+UPSTREAM=$(G config --get ghless.source 2>/dev/null || true)
+HAS_BASE=0; G rev-parse -q --verify refs/tags/ghless/source-base >/dev/null 2>&1 && HAS_BASE=1
 HEADSHA=$(G rev-parse HEAD)
 
 if [ "$(G rev-parse --is-shallow-repository)" = true ]; then
@@ -61,10 +61,10 @@ if [ -n "$(G status --porcelain)" ]; then
   G ls-files --others --exclude-standard -z | (cd "$DIR" && tar --null -T - -czf "$OUT/untracked.tar.gz" 2>/dev/null)
 fi
 if [ "$HAS_BASE" = 1 ]; then
-  G bundle create "$OUT/source-base.bundle" errand/source-base >/dev/null 2>&1
-  if [ "$(G rev-parse errand/source-base)" != "$HEADSHA" ]; then
-    G bundle create "$OUT/changes.bundle" errand/source-base..HEAD >/dev/null 2>&1
-    G format-patch -q --stdout errand/source-base..HEAD > "$OUT/changes.patch" 2>/dev/null
+  G bundle create "$OUT/source-base.bundle" ghless/source-base >/dev/null 2>&1
+  if [ "$(G rev-parse ghless/source-base)" != "$HEADSHA" ]; then
+    G bundle create "$OUT/changes.bundle" ghless/source-base..HEAD >/dev/null 2>&1
+    G format-patch -q --stdout ghless/source-base..HEAD > "$OUT/changes.patch" 2>/dev/null
   fi
 fi
 for f in "$OUT"/*.bundle; do G bundle verify "$f" >/dev/null 2>&1 || die "bundle failed verification: $f"; done
@@ -77,7 +77,7 @@ Upstream: ${UPSTREAM:-none recorded (original work)}
 
     git clone full.bundle $NAME          # every branch and tag, full history
     git clone source-base.bundle base    # the upstream commit you started from (if present)
-    git -C base checkout errand/source-base
+    git -C base checkout ghless/source-base
     git -C base am < ../changes.patch    # replay your changes on that base (if present)
     tar xzf head.tar.gz                  # HEAD without history
 
@@ -101,7 +101,7 @@ if [ "$NET" = 1 ]; then
     code=$(curl -s -m 60 -X POST -o "$OUT/swh-$(printf '%s' "$clean" | tr -c 'A-Za-z0-9' '_').json" -w '%{http_code}' \
       "https://archive.softwareheritage.org/api/1/origin/save/git/url/$clean/")
     case "$code" in 200|201|202) net swh "$clean" "ok:$code" ;; *) net swh "$clean" "failed:$code" ;; esac
-    line=$(sh "$ERRAND_HOME/components/bulk-archive/bin/spn2.sh" "$clean" 2>/dev/null | head -n1)
+    line=$(sh "$GHLESS_HOME/components/bulk-archive/bin/spn2.sh" "$clean" 2>/dev/null | head -n1)
     net wayback "$clean" "$(printf '%s' "$line" | cut -f2):$(printf '%s' "$line" | cut -f3)"
   done
   S_GITHUB=0
@@ -109,10 +109,10 @@ if [ "$NET" = 1 ]; then
   if [ "$S_GITHUB" = 1 ]; then
     snapargs=""; [ "$DEEP" = 1 ] && snapargs="--save --poll --sweeps 8"
     # shellcheck disable=SC2086
-    timeout "${ERRAND_SNAPSHOT_SECS:-300}" python3 "$ERRAND_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$OUT/ghre-snapshot" $snapargs >"$OUT/ghre-snapshot.log" 2>&1
+    timeout "${GHLESS_SNAPSHOT_SECS:-300}" python3 "$GHLESS_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$OUT/ghre-snapshot" $snapargs >"$OUT/ghre-snapshot.log" 2>&1
     case $? in
       0) net ghre-snap "$S_OWNER/$S_REPO" ok ;;
-      124) net ghre-snap "$S_OWNER/$S_REPO" "partial: stopped after ${ERRAND_SNAPSHOT_SECS:-300}s, rerun ghre snapshot to resume" ;;
+      124) net ghre-snap "$S_OWNER/$S_REPO" "partial: stopped after ${GHLESS_SNAPSHOT_SECS:-300}s, rerun ghre snapshot to resume" ;;
       *) net ghre-snap "$S_OWNER/$S_REPO" "failed: see ghre-snapshot.log" ;;
     esac
   fi

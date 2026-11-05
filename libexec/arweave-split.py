@@ -72,7 +72,7 @@ def main():
                 f"Source commit: {commit}\n\nParts:\n{listing}\n\n"
                 "Reassemble: clone every part and copy the top-level entries of each into one directory.\n"
                 "The full history lives on the other lanes (radicle, nostr) when they succeeded.\n")
-    ident = ["-c", "user.name=errand", "-c", "user.email=errand@users.noreply.invalid"]
+    ident = ["-c", "user.name=ghless", "-c", "user.email=ghless@users.noreply.invalid"]
     for i, (n, group) in enumerate(zip(names, groups)):
         dest = os.path.join(out, n)
         if os.path.isdir(os.path.join(dest, ".git")):

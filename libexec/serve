@@ -1,26 +1,26 @@
 #!/bin/sh
 # serve: a git web index on a temporary public cfrs tunnel.
-#   errand serve [NAME=PATH | PATH ...]     (default: errand-home itself)
-# A directory that is not a git checkout (or a dirty errand-home) is snapshotted
+#   ghless serve [NAME=PATH | PATH ...]     (default: ghless itself)
+# A directory that is not a git checkout (or a dirty ghless) is snapshotted
 # into a scratch repo first, so a zip-installed tree can be served.
-#   errand serve --stop | --status
+#   ghless serve --stop | --status
 # Repos are published as static files (browsable pages plus dumb-HTTP clone) in
-# $ERRAND_DATA/pub, served by a detached `cfrs serve`. The URL changes whenever
+# $GHLESS_DATA/pub, served by a detached `cfrs serve`. The URL changes whenever
 # the tunnel restarts, so every run prints it again.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
-have cfrs || die "cfrs is not installed (errand tools install cfrs)"
-PUB="$ERRAND_DATA/pub"
-INSTANCE=errand-pub
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
+have cfrs || die "cfrs is not installed (ghless tools install cfrs)"
+PUB="$GHLESS_DATA/pub"
+INSTANCE=ghless-pub
 
 case "${1:-}" in
   --stop) cfrs stop "$INSTANCE" 2>&1; exit $? ;;
-  --status) if cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)" | grep -q "^$INSTANCE"; then cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; else echo "no tunnel is running (start one with: errand serve)"; fi; exit 0 ;;
+  --status) if cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)" | grep -q "^$INSTANCE"; then cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; else echo "no tunnel is running (start one with: ghless serve)"; fi; exit 0 ;;
 esac
 
-[ $# -gt 0 ] || set -- "errand-home=$ERRAND_HOME"
-mkdir -p "$PUB" "$ERRAND_DATA/snap"
+[ $# -gt 0 ] || set -- "ghless=$GHLESS_HOME"
+mkdir -p "$PUB" "$GHLESS_DATA/snap"
 n_args=$#; i=0; CLONES=""
 while [ "$i" -lt "$n_args" ]; do
   a="$1"; shift; i=$((i + 1))
@@ -32,18 +32,18 @@ while [ "$i" -lt "$n_args" ]; do
   [ -d "$p" ] || die "no such directory: $p"
   valid_name "$n" || die "bad name '$n': letters, digits, . _ -, not starting with . or -"
   p=$(cd "$p" && pwd)
-  if [ "$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" != "$p" ] || { [ "$p" = "$ERRAND_HOME" ] && [ -n "$(git -C "$p" status --porcelain 2>/dev/null)" ]; }; then
-    snap="$ERRAND_DATA/snap/$n"
+  if [ "$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" != "$p" ] || { [ "$p" = "$GHLESS_HOME" ] && [ -n "$(git -C "$p" status --porcelain 2>/dev/null)" ]; }; then
+    snap="$GHLESS_DATA/snap/$n"
     rm -rf "$snap"; export_tree "$p" "$snap"
     git -C "$snap" init -q -b main
     git -C "$snap" add -A
-    git -C "$snap" -c user.name=errand -c user.email=errand@users.noreply.invalid commit -q -m "snapshot of $p at $(now_utc)"
+    git -C "$snap" -c user.name=ghless -c user.email=ghless@users.noreply.invalid commit -q -m "snapshot of $p at $(now_utc)"
     p="$snap"
   fi
   set -- "$@" "$n=$p"
   CLONES="$CLONES $n"
 done
-python3 "$ERRAND_HOME/libexec/gitweb-static.py" "$PUB" "$@" || warn "some repositories were not published (see above)"
+python3 "$GHLESS_HOME/libexec/gitweb-static.py" "$PUB" "$@" || warn "some repositories were not published (see above)"
 
 doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
 url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)

@@ -136,11 +136,11 @@ def main():
         return 1
     rows = "".join(f"<tr><td><a href='{href(n)}/index.html'>{html.escape(n)}</a></td>"
                    f"<td><code>{h}</code></td><td>{html.escape(s)}</td></tr>" for n, h, s in items)
-    body = ("<h1>errand git index</h1><p>Every repository here clones over plain HTTP: "
+    body = ("<h1>ghless git index</h1><p>Every repository here clones over plain HTTP: "
             "<code>git clone &lt;this-site&gt;/NAME.git</code></p>"
             f"<table><tr><th>repo</th><th>HEAD</th><th>last commit</th></tr>{rows}</table>")
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
-        fh.write(page("errand git index", body))
+        fh.write(page("ghless git index", body))
     return 1 if failed else 0
 
 

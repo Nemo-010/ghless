@@ -1,8 +1,8 @@
 #!/bin/sh
 # update-check: compare each pin with the upstream's latest release. Read only.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
 latest() {
   _t=$(curl -fsS -m 30 "https://api.github.com/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null)
   [ -n "$_t" ] || _t=$(curl -fsS -m 30 "https://forge.web.pkgforge.dev/github/repos/$1/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null)

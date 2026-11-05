@@ -1,14 +1,14 @@
 #!/bin/sh
 # publish: push a project to every lane that works, record where it went.
-#   errand publish [DIR] [--name NAME] [--lanes github,radicle,nostr,arweave] [--desc TEXT]
+#   ghless publish [DIR] [--name NAME] [--lanes github,radicle,nostr,arweave] [--desc TEXT]
 # DIR defaults to the current directory. The pushed ref is DIR's HEAD, published
-# as `main` from a staging repo kept in $ERRAND_DATA/publish/NAME, so DIR's own
+# as `main` from a staging repo kept in $GHLESS_DATA/publish/NAME, so DIR's own
 # remotes and branches are never touched. Re-running updates the same repos.
 # A lane that cannot run is reported and skipped; the exit code is 0 when at
 # least one lane succeeded.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
 
 DIR=""; NAME=""; LANES=""; DESC=""
 while [ $# -gt 0 ]; do
@@ -27,24 +27,24 @@ git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repo
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
 valid_name "$NAME" || NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^[-.]*//')
 valid_name "$NAME" || die "no usable name; pass --name (letters, digits, . _ -, not starting with . or -)"
-[ -n "$DESC" ] || DESC="$NAME, published by errand-home"
+[ -n "$DESC" ] || DESC="$NAME, published by ghless"
 if [ -z "$LANES" ]; then
   LANES="radicle,nostr,arweave"
   github_authed && LANES="github,$LANES"
 fi
 
-STAGE="$ERRAND_DATA/publish/$NAME"
+STAGE="$GHLESS_DATA/publish/$NAME"
 mkdir -p "$STAGE"
 [ -d "$STAGE/.git" ] || git -C "$STAGE" init -q -b main
-if [ -f "$STAGE/.git/errand-source" ] && [ "$(cat "$STAGE/.git/errand-source")" != "$DIR" ]; then
-  die "name '$NAME' already publishes $(cat "$STAGE/.git/errand-source"); pass --name to publish $DIR separately"
+if [ -f "$STAGE/.git/ghless-source" ] && [ "$(cat "$STAGE/.git/ghless-source")" != "$DIR" ]; then
+  die "name '$NAME' already publishes $(cat "$STAGE/.git/ghless-source"); pass --name to publish $DIR separately"
 fi
 [ -n "$(git -C "$DIR" status --porcelain)" ] && warn "$DIR has uncommitted changes; only HEAD is published"
-git -C "$STAGE" config user.name >/dev/null 2>&1 || git -C "$STAGE" config user.name errand
-git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user.email errand@users.noreply.invalid
+git -C "$STAGE" config user.name >/dev/null 2>&1 || git -C "$STAGE" config user.name ghless
+git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user.email ghless@users.noreply.invalid
 git_safe -C "$STAGE" fetch -q "$DIR" '+HEAD:refs/heads/incoming' || die "cannot read HEAD of $DIR"
 git -C "$STAGE" checkout -q -f -B main incoming
-printf '%s' "$DIR" > "$STAGE/.git/errand-source"
+printf '%s' "$DIR" > "$STAGE/.git/ghless-source"
 HEADSHA=$(git -C "$STAGE" rev-parse --short HEAD)
 say "staging $NAME at $HEADSHA (lanes: $LANES)"
 
@@ -72,10 +72,10 @@ lane_github() {
 }
 
 lane_radicle() {
-  have rad || { result radicle "-" "failed: rad not installed (errand tools install radicle)"; return; }
-  export RAD_HOME="$ERRAND_DATA/radicle" RAD_PASSPHRASE=""
+  have rad || { result radicle "-" "failed: rad not installed (ghless tools install radicle)"; return; }
+  export RAD_HOME="$GHLESS_DATA/radicle" RAD_PASSPHRASE=""
   mkdir -p "$RAD_HOME"
-  [ -f "$RAD_HOME/keys/radicle" ] || rad auth --alias errand >/dev/null 2>&1 ||
+  [ -f "$RAD_HOME/keys/radicle" ] || rad auth --alias ghless >/dev/null 2>&1 ||
     { result radicle "-" "failed: rad auth"; return; }
   seeds=""; seedhosts=""; n=0
   for host in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do
@@ -88,7 +88,7 @@ lane_radicle() {
       seeds="$seeds $nid@$addr"; seedhosts="$seedhosts $host"
     elif warp_up; then
       n=$((n + 1)); lp=$(free_port)
-      cfrs warp forward --detach --replace --name "errand-rad-$n" --local "127.0.0.1:$lp=$h:$p" >/dev/null 2>&1 &&
+      cfrs warp forward --detach --replace --name "ghless-rad-$n" --local "127.0.0.1:$lp=$h:$p" >/dev/null 2>&1 &&
         { seeds="$seeds $nid@127.0.0.1:$lp"; seedhosts="$seedhosts $host"; }
     fi
   done
@@ -131,16 +131,16 @@ lane_radicle() {
 }
 
 lane_nostr() {
-  have ngit || { result nostr "-" "failed: ngit not installed (errand tools install ngit)"; return; }
+  have ngit || { result nostr "-" "failed: ngit not installed (ghless tools install ngit)"; return; }
   have nak || { result nostr "-" "failed: nak not installed"; return; }
-  key="$ERRAND_DATA/nostr.key"
+  key="$GHLESS_DATA/nostr.key"
   if [ ! -s "$key" ]; then
     ( umask 077; nak key generate > "$key" ) || { result nostr "-" "failed: key generation"; return; }
   fi
   ident=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')
   (
     cd "$STAGE" || exit 1
-    export XDG_DATA_HOME="$ERRAND_DATA/xdg"
+    export XDG_DATA_HOME="$GHLESS_DATA/xdg"
     mkdir -p "$XDG_DATA_HOME"
     if ! git remote get-url origin 2>/dev/null | grep -q '^nostr://'; then
       net_run ngit --nsec-file "$key" init --name "$NAME" --identifier "$ident" --description "$DESC" --defaults >/dev/null 2>&1 || exit 2
@@ -159,12 +159,12 @@ lane_nostr() {
 }
 
 lane_arweave() {
-  have git-remote-arweave || { result arweave "-" "failed: git-remote-arweave not installed (errand tools install arweave)"; return; }
-  wallet="$ERRAND_DATA/arweave-wallet.json"
+  have git-remote-arweave || { result arweave "-" "failed: git-remote-arweave not installed (ghless tools install arweave)"; return; }
+  wallet="$GHLESS_DATA/arweave-wallet.json"
   if [ ! -s "$wallet" ]; then
-    "$ERRAND_HOME/libexec/arweave-wallet.py" "$wallet" >/dev/null || { result arweave "-" "failed: wallet generation"; return; }
+    "$GHLESS_HOME/libexec/arweave-wallet.py" "$wallet" >/dev/null || { result arweave "-" "failed: wallet generation"; return; }
   fi
-  addr=$("$ERRAND_HOME/libexec/arweave-wallet.py" --address "$wallet" 2>/dev/null)
+  addr=$("$GHLESS_HOME/libexec/arweave-wallet.py" --address "$wallet" 2>/dev/null)
   [ -n "$addr" ] || { result arweave "-" "failed: wallet address unknown"; return; }
   url="arweave://$addr/$NAME"
   git -C "$STAGE" remote get-url arweave >/dev/null 2>&1 && git -C "$STAGE" remote set-url arweave "$url" || git -C "$STAGE" remote add arweave "$url"
@@ -175,9 +175,9 @@ lane_arweave() {
     *) result arweave "$url" "failed: $(printf '%s' "$out" | tail -n1 | cut -c1-200)"; return ;;
   esac
   say "arweave: pack is over the free tier (402); publishing as parts under 100 KiB each"
-  parts="$ERRAND_DATA/arweave-parts/$NAME"
+  parts="$GHLESS_DATA/arweave-parts/$NAME"
   mkdir -p "$parts"
-  names=$("$ERRAND_HOME/libexec/arweave-split.py" "$STAGE" "$parts" "$NAME" "$addr") ||
+  names=$("$GHLESS_HOME/libexec/arweave-split.py" "$STAGE" "$parts" "$NAME" "$addr") ||
     { result arweave "$url" "failed: cannot split under the free tier"; return; }
   urls=""; bad=0
   for pn in $names; do

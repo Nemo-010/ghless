@@ -5,11 +5,11 @@
 # Idempotent: a tool is skipped when its marker records the pinned version
 # and its binary is still present.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
 
-BINDIR="$ERRAND_PREFIX/bin"
-MARKDIR="$ERRAND_PREFIX/installed"
+BINDIR="$GHLESS_PREFIX/bin"
+MARKDIR="$GHLESS_PREFIX/installed"
 mkdir -p "$BINDIR" "$MARKDIR"
 
 # The marker records the pinned version and the sha256 of the installed binary,
@@ -21,7 +21,7 @@ marked() { [ "$(cat "$MARKDIR/$1" 2>/dev/null)" = "$2 $(sigof "$@")" ]; }
 mark() { printf '%s' "$2 $(sigof "$@")" > "$MARKDIR/$1"; }
 pinned_match() { [ "$(file_sha "$1")" = "$2" ]; }
 
-work_tmp() { mktemp -d "${TMPDIR:-/tmp}/errand-tools.XXXXXX"; }
+work_tmp() { mktemp -d "${TMPDIR:-/tmp}/ghless-tools.XXXXXX"; }
 
 install_cfrs() {
   want="$CFRS_VERSION $(pin_value CFRS_SHA)"
@@ -97,9 +97,9 @@ install_arweave() {
   if [ -x "$BINDIR/git-remote-arweave" ] && [ -x "$BINDIR/arweave-git" ] && marked arweave "$want" "$BINDIR/git-remote-arweave" "$BINDIR/arweave-git"; then
     say "git-remote-arweave $ARWEAVE_COMMIT already installed"; return 0
   fi
-  # Build state stays under $ERRAND_PREFIX/go. The Go toolchain and the module
+  # Build state stays under $GHLESS_PREFIX/go. The Go toolchain and the module
   # downloads are verified by Go itself (go.sum, checksum database); they are
-  # not pinned by errand.
+  # not pinned by ghless.
   have go || { warn "go is required to build git-remote-arweave (apt: golang-go)"; return 1; }
   t=$(work_tmp)
   (
@@ -110,7 +110,7 @@ install_arweave() {
   (
     cd "$t/src" && git checkout -q FETCH_HEAD &&
     [ "$(git rev-parse HEAD)" = "$ARWEAVE_COMMIT" ] &&
-    GOPATH="$ERRAND_PREFIX/go" GOCACHE="$ERRAND_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
+    GOPATH="$GHLESS_PREFIX/go" GOCACHE="$GHLESS_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
   ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
   for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b"; done
   rm -rf "$t"; mark arweave "$want" "$BINDIR/git-remote-arweave" "$BINDIR/arweave-git"; say "git-remote-arweave $ARWEAVE_COMMIT built"

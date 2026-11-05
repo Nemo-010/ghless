@@ -1,12 +1,12 @@
 #!/bin/sh
 # fetch: clone any public repo and open a work branch.
-#   errand fetch SPEC [DIR] [--ref REF] [--depth N]
+#   ghless fetch SPEC [DIR] [--ref REF] [--depth N]
 # Routes, in order: direct git, git through the broker, source tarball.
 # Re-running on an existing checkout fetches instead of cloning again.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
-. "$ERRAND_HOME/libexec/spec.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
+. "$GHLESS_HOME/libexec/spec.sh"
 
 SPEC=""; DIR=""; REF=""; DEPTH=""
 while [ $# -gt 0 ]; do
@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$SPEC" ] || die "usage: errand fetch SPEC [DIR] [--ref REF] [--depth N]"
+[ -n "$SPEC" ] || die "usage: ghless fetch SPEC [DIR] [--ref REF] [--depth N]"
 parse_spec "$SPEC" || die "cannot understand: $SPEC"
 [ -n "$REF" ] || REF="$S_REF"
 case "$DEPTH" in ""|*[!0-9]*) [ -z "$DEPTH" ] || die "--depth must be a number" ;; esac
@@ -30,8 +30,8 @@ esac
 case "$REF" in *[!A-Za-z0-9._/@+-]*) die "refused ref: $REF" ;; esac
 [ -z "$S_EXTRA" ] || warn "ignoring the unrecognised URL path '$S_EXTRA'; fetching the repository"
 if [ -z "$DIR" ]; then
-  if [ "$S_GITHUB" = 1 ]; then DIR="$ERRAND_WORK/${S_OWNER}__${S_REPO}"
-  else DIR="$ERRAND_WORK/$(basename "${S_URL%.git}")"; fi
+  if [ "$S_GITHUB" = 1 ]; then DIR="$GHLESS_WORK/${S_OWNER}__${S_REPO}"
+  else DIR="$GHLESS_WORK/$(basename "${S_URL%.git}")"; fi
 fi
 case "$S_URL" in
   /*|./*|../*) [ -d "$S_URL" ] && S_URL=$(cd "$S_URL" && pwd) ;;
@@ -42,14 +42,14 @@ mkdir -p "$(dirname "$DIR")"
 is_sha() { case "$1" in *[!0-9a-f]*|"") return 1 ;; esac; [ ${#1} -ge 7 ] && [ ${#1} -le 40 ]; }
 
 route=""
-if [ -d "$DIR/.git" ] && [ "$(git -C "$DIR" config --get errand.source 2>/dev/null)" = "$S_URL" ]; then
+if [ -d "$DIR/.git" ] && [ "$(git -C "$DIR" config --get ghless.source 2>/dev/null)" = "$S_URL" ]; then
   say "$DIR exists; fetching updates"
   git_safe -C "$DIR" fetch --all --tags --prune -q 2>/dev/null ||
     git_safe -C "$DIR" fetch -q "$BROKER/$S_URL" '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null ||
     warn "fetch failed; working with what is already there"
   echo "$DIR"; exit 0
 fi
-[ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ] && die "$DIR exists and is not an errand checkout"
+[ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ] && die "$DIR exists and is not an ghless checkout"
 
 # clone_with URL [branch-or-tag]: depth and ref are validated above; every
 # value is passed as its own argument, after `--` for the URL.
@@ -76,7 +76,7 @@ if try_clone "$S_URL"; then route=direct
 elif try_clone "$BROKER/$S_URL"; then route=broker
 elif [ "$S_GITHUB" = 1 ]; then
   say "git routes failed; trying the source tarball (no history)"
-  t=$(mktemp -d "${TMPDIR:-/tmp}/errand-fetch.XXXXXX")
+  t=$(mktemp -d "${TMPDIR:-/tmp}/ghless-fetch.XXXXXX")
   r="${REF:-HEAD}"
   if [ -n "$REF" ]; then warn "tarball route has no history; ref $REF is fetched as a snapshot"; fi
   base="https://codeload.github.com/$S_OWNER/$S_REPO/tar.gz/$r"
@@ -85,7 +85,7 @@ elif [ "$S_GITHUB" = 1 ]; then
     rm -rf "$DIR"; mv "$top" "$DIR"
     git -C "$DIR" init -q
     git -C "$DIR" add -A
-    git -C "$DIR" -c user.name=errand -c user.email=errand@localhost \
+    git -C "$DIR" -c user.name=ghless -c user.email=ghless@localhost \
       commit -q -m "snapshot of $S_OWNER/$S_REPO at $r (tarball, no upstream history)"
     git -C "$DIR" remote add origin "$S_URL"
     route=tarball
@@ -99,13 +99,13 @@ fi
 
 git -C "$DIR" remote set-url origin "$S_URL" 2>/dev/null
 base_commit=$(git -C "$DIR" rev-parse HEAD)
-git -C "$DIR" tag -f errand/source-base "$base_commit" >/dev/null
-git -C "$DIR" config errand.source "$S_URL"
-git -C "$DIR" config errand.route "$route"
-git -C "$DIR" config errand.base "$base_commit"
-git -C "$DIR" config errand.fetched "$(now_utc)"
-git -C "$DIR" config user.name >/dev/null 2>&1 || git -C "$DIR" config user.name "errand"
-git -C "$DIR" config user.email >/dev/null 2>&1 || git -C "$DIR" config user.email "errand@users.noreply.invalid"
-git -C "$DIR" switch -q -c errand/work 2>/dev/null || git -C "$DIR" switch -q errand/work
-say "fetched $S_URL via $route at ${base_commit%"${base_commit#???????}"}; branch errand/work"
+git -C "$DIR" tag -f ghless/source-base "$base_commit" >/dev/null
+git -C "$DIR" config ghless.source "$S_URL"
+git -C "$DIR" config ghless.route "$route"
+git -C "$DIR" config ghless.base "$base_commit"
+git -C "$DIR" config ghless.fetched "$(now_utc)"
+git -C "$DIR" config user.name >/dev/null 2>&1 || git -C "$DIR" config user.name "ghless"
+git -C "$DIR" config user.email >/dev/null 2>&1 || git -C "$DIR" config user.email "ghless@users.noreply.invalid"
+git -C "$DIR" switch -q -c ghless/work 2>/dev/null || git -C "$DIR" switch -q ghless/work
+say "fetched $S_URL via $route at ${base_commit%"${base_commit#???????}"}; branch ghless/work"
 echo "$DIR"

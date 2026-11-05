@@ -1,5 +1,5 @@
 #!/bin/sh
-# install: one-time, idempotent setup of errand-home.
+# install: one-time, idempotent setup of ghless.
 #
 #   ./install [--core] [--no-gh-shim] [--no-skill] [--no-path] [--uninstall]
 #             [--prefix DIR] [--bin DIR]
@@ -11,14 +11,14 @@
 #   --no-path      do not edit shell profiles
 #   --uninstall    remove links, profile block and skill links (keeps data)
 #
-# Environment: ERRAND_PREFIX (binaries, default ~/.local/share/errand),
-# ERRAND_BIN (links, default ~/.local/bin), ERRAND_DATA (state and work).
+# Environment: GHLESS_PREFIX (binaries, default ~/.local/share/ghless),
+# GHLESS_BIN (links, default ~/.local/bin), GHLESS_DATA (state and work).
 # Safe to re-run: every step checks before it acts.
 set -u
-ERRAND_HOME=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
-export ERRAND_HOME
-USER_DATA="${ERRAND_DATA:-}"; USER_WORK="${ERRAND_WORK:-}"
-. "$ERRAND_HOME/libexec/common.sh"
+GHLESS_HOME=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+export GHLESS_HOME
+USER_DATA="${GHLESS_DATA:-}"; USER_WORK="${GHLESS_WORK:-}"
+. "$GHLESS_HOME/libexec/common.sh"
 
 CORE=0; GHSHIM=1; SKILL=1; EDITPATH=1; UNINSTALL=0; NOTOOLS=0; WARNED=0
 while [ $# -gt 0 ]; do
@@ -32,35 +32,35 @@ while [ $# -gt 0 ]; do
     --no-path) EDITPATH=0 ;;
     --no-tools) NOTOOLS=1 ;;
     --uninstall) UNINSTALL=1 ;;
-    --prefix) shift; ERRAND_PREFIX="$(abspath "$1")"; ERRAND_DATA="${USER_DATA:-$ERRAND_PREFIX/data}"; ERRAND_WORK="${USER_WORK:-$ERRAND_DATA/work}"; PATH="$ERRAND_PREFIX/bin:$PATH"; export ERRAND_PREFIX ERRAND_DATA ERRAND_WORK PATH ;;
-    --bin) shift; ERRAND_BIN="$(abspath "$1")"; export ERRAND_BIN ;;
+    --prefix) shift; GHLESS_PREFIX="$(abspath "$1")"; GHLESS_DATA="${USER_DATA:-$GHLESS_PREFIX/data}"; GHLESS_WORK="${USER_WORK:-$GHLESS_DATA/work}"; PATH="$GHLESS_PREFIX/bin:$PATH"; export GHLESS_PREFIX GHLESS_DATA GHLESS_WORK PATH ;;
+    --bin) shift; GHLESS_BIN="$(abspath "$1")"; export GHLESS_BIN ;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
   shift
 done
 
-MARK_BEGIN="# >>> errand-home >>>"
-MARK_END="# <<< errand-home <<<"
+MARK_BEGIN="# >>> ghless >>>"
+MARK_END="# <<< ghless <<<"
 SKILL_DIRS="$HOME/.claude/skills $HOME/.agents/skills"
-LINKS="errand ghre ghre-hunt ghre-pack-patches ghre-export-records bulk-archive spn2 arquivo-apn megalodon ghostarchive archive-today urlscan socks-relay"
+LINKS="ghless ghre ghre-hunt ghre-pack-patches ghre-export-records bulk-archive spn2 arquivo-apn megalodon ghostarchive archive-today urlscan socks-relay"
 
 link_target() {
   case "$1" in
-    errand) echo "$ERRAND_HOME/bin/errand" ;;
-    ghre) echo "$ERRAND_HOME/components/ghre/bin/ghre" ;;
-    ghre-hunt) echo "$ERRAND_HOME/components/ghre/bin/hunt" ;;
-    ghre-pack-patches) echo "$ERRAND_HOME/components/ghre/bin/pack-patches" ;;
-    ghre-export-records) echo "$ERRAND_HOME/components/ghre/bin/export-records" ;;
-    bulk-archive) echo "$ERRAND_HOME/components/bulk-archive/bin/bulk-archive.sh" ;;
-    spn2) echo "$ERRAND_HOME/components/bulk-archive/bin/spn2.sh" ;;
-    arquivo-apn) echo "$ERRAND_HOME/components/bulk-archive/bin/arquivo-apn.sh" ;;
-    megalodon) echo "$ERRAND_HOME/components/bulk-archive/bin/megalodon.sh" ;;
-    ghostarchive) echo "$ERRAND_HOME/components/bulk-archive/bin/ghostarchive.sh" ;;
-    archive-today) echo "$ERRAND_HOME/components/bulk-archive/bin/archive-today.sh" ;;
-    urlscan) echo "$ERRAND_HOME/components/bulk-archive/bin/urlscan.sh" ;;
-    socks-relay) echo "$ERRAND_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" ;;
-    gh) echo "$ERRAND_HOME/components/gh-forge/bin/gh" ;;
+    ghless) echo "$GHLESS_HOME/bin/ghless" ;;
+    ghre) echo "$GHLESS_HOME/components/ghre/bin/ghre" ;;
+    ghre-hunt) echo "$GHLESS_HOME/components/ghre/bin/hunt" ;;
+    ghre-pack-patches) echo "$GHLESS_HOME/components/ghre/bin/pack-patches" ;;
+    ghre-export-records) echo "$GHLESS_HOME/components/ghre/bin/export-records" ;;
+    bulk-archive) echo "$GHLESS_HOME/components/bulk-archive/bin/bulk-archive.sh" ;;
+    spn2) echo "$GHLESS_HOME/components/bulk-archive/bin/spn2.sh" ;;
+    arquivo-apn) echo "$GHLESS_HOME/components/bulk-archive/bin/arquivo-apn.sh" ;;
+    megalodon) echo "$GHLESS_HOME/components/bulk-archive/bin/megalodon.sh" ;;
+    ghostarchive) echo "$GHLESS_HOME/components/bulk-archive/bin/ghostarchive.sh" ;;
+    archive-today) echo "$GHLESS_HOME/components/bulk-archive/bin/archive-today.sh" ;;
+    urlscan) echo "$GHLESS_HOME/components/bulk-archive/bin/urlscan.sh" ;;
+    socks-relay) echo "$GHLESS_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" ;;
+    gh) echo "$GHLESS_HOME/components/gh-forge/bin/gh" ;;
   esac
 }
 
@@ -76,7 +76,7 @@ profile_files() {
 strip_block() { # strip_block FILE: removes only a well-formed block (BEGIN, then END, no BEGIN between)
   [ -f "$1" ] || return 0
   grep -qxF "$MARK_BEGIN" "$1" || return 0
-  tmp="$1.errand.$$"
+  tmp="$1.ghless.$$"
   awk -v b="$MARK_BEGIN" -v e="$MARK_END" '
     $0==b { if (open) printf "%s", buf; open=1; buf=$0 "\n"; next }
     $0==e && open { open=0; buf=""; next }
@@ -96,17 +96,17 @@ strip_block() { # strip_block FILE: removes only a well-formed block (BEGIN, the
 if [ "$UNINSTALL" = 1 ]; then
   for n in $LINKS gh; do
     t=$(link_target "$n")
-    [ "$(readlink "$ERRAND_BIN/$n" 2>/dev/null)" = "$t" ] && rm -f "$ERRAND_BIN/$n" && say "removed $ERRAND_BIN/$n"
+    [ "$(readlink "$GHLESS_BIN/$n" 2>/dev/null)" = "$t" ] && rm -f "$GHLESS_BIN/$n" && say "removed $GHLESS_BIN/$n"
   done
   for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
-    [ "$(readlink "$ERRAND_BIN/$b" 2>/dev/null)" = "$ERRAND_PREFIX/bin/$b" ] && rm -f "$ERRAND_BIN/$b" && say "removed $ERRAND_BIN/$b"
+    [ "$(readlink "$GHLESS_BIN/$b" 2>/dev/null)" = "$GHLESS_PREFIX/bin/$b" ] && rm -f "$GHLESS_BIN/$b" && say "removed $GHLESS_BIN/$b"
   done
   for f in $(profile_files); do strip_block "$f"; done
-  rm -f "$ERRAND_PREFIX/env.sh"
+  rm -f "$GHLESS_PREFIX/env.sh"
   for d in $SKILL_DIRS; do
-    [ -L "$d/errand-home" ] && rm -f "$d/errand-home" && say "removed $d/errand-home"
+    [ -L "$d/ghless" ] && rm -f "$d/ghless" && say "removed $d/ghless"
   done
-  say "uninstalled; data kept in $ERRAND_DATA, binaries kept in $ERRAND_PREFIX/bin"
+  say "uninstalled; data kept in $GHLESS_DATA, binaries kept in $GHLESS_PREFIX/bin"
   exit 0
 fi
 
@@ -141,34 +141,34 @@ for must in git curl python3; do
 done
 
 # 2. Pinned binaries. A tree unpacked without mode bits is repaired first.
-chmod +x "$ERRAND_HOME/install" "$ERRAND_HOME/bin/errand" "$ERRAND_HOME"/libexec/* \
-  "$ERRAND_HOME"/components/ghre/bin/* "$ERRAND_HOME"/components/bulk-archive/bin/* \
-  "$ERRAND_HOME/components/gh-forge/bin/gh" "$ERRAND_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" 2>/dev/null
-mkdir -p "$ERRAND_PREFIX/bin" "$ERRAND_DATA" "$ERRAND_WORK" "$ERRAND_BIN"
-chmod 700 "$ERRAND_DATA" 2>/dev/null
+chmod +x "$GHLESS_HOME/install" "$GHLESS_HOME/bin/ghless" "$GHLESS_HOME"/libexec/* \
+  "$GHLESS_HOME"/components/ghre/bin/* "$GHLESS_HOME"/components/bulk-archive/bin/* \
+  "$GHLESS_HOME/components/gh-forge/bin/gh" "$GHLESS_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" 2>/dev/null
+mkdir -p "$GHLESS_PREFIX/bin" "$GHLESS_DATA" "$GHLESS_WORK" "$GHLESS_BIN"
+chmod 700 "$GHLESS_DATA" 2>/dev/null
 rc=0
 if [ "$NOTOOLS" = 1 ]; then
   :
 elif [ "$CORE" = 1 ]; then
-  "$ERRAND_HOME/libexec/tools" install cfrs || rc=1
+  "$GHLESS_HOME/libexec/tools" install cfrs || rc=1
 else
-  "$ERRAND_HOME/libexec/tools" install || rc=1
+  "$GHLESS_HOME/libexec/tools" install || rc=1
 fi
 
 # 3. Commands on PATH.
 put_link() { # put_link NAME TARGET: never replaces a file that is not one of our links
-  if [ -e "$ERRAND_BIN/$1" ] || [ -L "$ERRAND_BIN/$1" ]; then
-    if [ ! -L "$ERRAND_BIN/$1" ]; then
-      warn "$ERRAND_BIN/$1 is a real file; left in place (move it, then re-run)"
+  if [ -e "$GHLESS_BIN/$1" ] || [ -L "$GHLESS_BIN/$1" ]; then
+    if [ ! -L "$GHLESS_BIN/$1" ]; then
+      warn "$GHLESS_BIN/$1 is a real file; left in place (move it, then re-run)"
       WARNED=1; return 1
     fi
-    case "$(readlink "$ERRAND_BIN/$1")" in
-      "$ERRAND_HOME"/*|"$ERRAND_PREFIX"/*) ;;
-      *) warn "$ERRAND_BIN/$1 is a link to $(readlink "$ERRAND_BIN/$1"); left in place"
+    case "$(readlink "$GHLESS_BIN/$1")" in
+      "$GHLESS_HOME"/*|"$GHLESS_PREFIX"/*) ;;
+      *) warn "$GHLESS_BIN/$1 is a link to $(readlink "$GHLESS_BIN/$1"); left in place"
          WARNED=1; return 1 ;;
     esac
   fi
-  ln -sfn "$2" "$ERRAND_BIN/$1"
+  ln -sfn "$2" "$GHLESS_BIN/$1"
 }
 for n in $LINKS; do
   t=$(link_target "$n")
@@ -179,18 +179,18 @@ if [ "$GHSHIM" = 1 ]; then
   put_link gh "$(link_target gh)" || warn "gh wrapper not installed: your existing gh stays first"
 fi
 for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
-  [ -x "$ERRAND_PREFIX/bin/$b" ] && { put_link "$b" "$ERRAND_PREFIX/bin/$b" || rc=1; }
+  [ -x "$GHLESS_PREFIX/bin/$b" ] && { put_link "$b" "$GHLESS_PREFIX/bin/$b" || rc=1; }
 done
 
 # 4. PATH for future shells. env.sh is the one file to source from scripts and
 # non-interactive agent shells; the profile block sources nothing else.
-cat > "$ERRAND_PREFIX/env.sh" <<ENV
-# errand-home environment. Source this: . "$ERRAND_PREFIX/env.sh"
-ERRAND_HOME="$ERRAND_HOME"
-ERRAND_PREFIX="$ERRAND_PREFIX"
-ERRAND_DATA="\${ERRAND_DATA:-$ERRAND_DATA}"
-case ":\$PATH:" in ":$ERRAND_BIN:"*) ;; *) PATH="$ERRAND_BIN:\$PATH" ;; esac
-export ERRAND_HOME ERRAND_PREFIX ERRAND_DATA PATH
+cat > "$GHLESS_PREFIX/env.sh" <<ENV
+# ghless environment. Source this: . "$GHLESS_PREFIX/env.sh"
+GHLESS_HOME="$GHLESS_HOME"
+GHLESS_PREFIX="$GHLESS_PREFIX"
+GHLESS_DATA="\${GHLESS_DATA:-$GHLESS_DATA}"
+case ":\$PATH:" in ":$GHLESS_BIN:"*) ;; *) PATH="$GHLESS_BIN:\$PATH" ;; esac
+export GHLESS_HOME GHLESS_PREFIX GHLESS_DATA PATH
 ENV
 if [ "$EDITPATH" = 1 ]; then
   for f in $(profile_files); do
@@ -198,7 +198,7 @@ if [ "$EDITPATH" = 1 ]; then
     [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
     {
       printf '%s\n' "$MARK_BEGIN"
-      printf '[ -r "%s" ] && . "%s"\n' "$ERRAND_PREFIX/env.sh" "$ERRAND_PREFIX/env.sh"
+      printf '[ -r "%s" ] && . "%s"\n' "$GHLESS_PREFIX/env.sh" "$GHLESS_PREFIX/env.sh"
       printf '%s\n' "$MARK_END"
     } >> "$f"
   done
@@ -207,17 +207,17 @@ fi
 # 5. Skill registration (symlink, so the skill follows the checkout).
 if [ "$SKILL" = 1 ]; then
   for d in $SKILL_DIRS; do
-    mkdir -p "$d" && ln -sfn "$ERRAND_HOME/skill/errand-home" "$d/errand-home"
+    mkdir -p "$d" && ln -sfn "$GHLESS_HOME/skill/ghless" "$d/ghless"
   done
 fi
 
 # 6. Prove it.
-"$ERRAND_HOME/bin/errand" doctor --brief || rc=1
+"$GHLESS_HOME/bin/ghless" doctor --brief || rc=1
 if [ "$rc" = 0 ] && [ "$WARNED" = 1 ]; then
   say "installed with warnings (see above); the commands that were skipped keep their existing versions"
-  say "In this shell: . \"$ERRAND_PREFIX/env.sh\""
+  say "In this shell: . \"$GHLESS_PREFIX/env.sh\""
 elif [ "$rc" = 0 ]; then
-  say "installed. In this shell: . \"$ERRAND_PREFIX/env.sh\"  (new login shells load it from ~/.profile)"
+  say "installed. In this shell: . \"$GHLESS_PREFIX/env.sh\"  (new login shells load it from ~/.profile)"
 else
   say "finished with errors; see the messages above. Re-running ./install is safe."
 fi

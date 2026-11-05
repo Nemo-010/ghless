@@ -1,26 +1,26 @@
 #!/bin/sh
-# pack: a zip of errand-home itself, ready to share.
-#   errand pack [OUT.zip]
-# Contents are `git archive HEAD` of a clean errand-home checkout (tracked files
+# pack: a zip of ghless itself, ready to share.
+#   ghless pack [OUT.zip]
+# Contents are `git archive HEAD` of a clean ghless checkout (tracked files
 # only), else a copy of the shipped top-level entries (install, bin, libexec,
 # components, ...), so keys or state placed inside the tree are never packed. Writes
 # OUT.zip.sha256 beside it.
 set -u
-ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
-. "$ERRAND_HOME/libexec/common.sh"
+GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+. "$GHLESS_HOME/libexec/common.sh"
 case "${1:-}" in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; -*) die "unknown option: $1" ;; esac
-OUT="${1:-$PWD/errand-home-$(cat "$ERRAND_HOME/VERSION").zip}"
+OUT="${1:-$PWD/ghless-$(cat "$GHLESS_HOME/VERSION").zip}"
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
 rm -f "$OUT"
-if git -C "$ERRAND_HOME" rev-parse --show-toplevel >/dev/null 2>&1 &&
-   [ "$(git -C "$ERRAND_HOME" rev-parse --show-toplevel)" = "$ERRAND_HOME" ] &&
-   [ -z "$(git -C "$ERRAND_HOME" status --porcelain)" ]; then
-  git -C "$ERRAND_HOME" archive --format=zip --prefix=errand-home/ -o "$OUT" HEAD
+if git -C "$GHLESS_HOME" rev-parse --show-toplevel >/dev/null 2>&1 &&
+   [ "$(git -C "$GHLESS_HOME" rev-parse --show-toplevel)" = "$GHLESS_HOME" ] &&
+   [ -z "$(git -C "$GHLESS_HOME" status --porcelain)" ]; then
+  git -C "$GHLESS_HOME" archive --format=zip --prefix=ghless/ -o "$OUT" HEAD
 else
-  say "not a clean checkout of errand-home: packing the shipped entries only"
-  t=$(mktemp -d "${TMPDIR:-/tmp}/errand-pack.XXXXXX")
-  export_tree "$ERRAND_HOME" "$t/errand-home"
-  zip_dir "$t/errand-home" "$OUT"
+  say "not a clean checkout of ghless: packing the shipped entries only"
+  t=$(mktemp -d "${TMPDIR:-/tmp}/ghless-pack.XXXXXX")
+  export_tree "$GHLESS_HOME" "$t/ghless"
+  zip_dir "$t/ghless" "$OUT"
   rm -rf "$t"
 fi
 (cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" > "$OUT.sha256")
