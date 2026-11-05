@@ -208,7 +208,7 @@ lane_arweave() {
 }
 
 for lane in $(printf '%s' "$LANES" | tr ',' ' '); do
-  say "lane $lane: starting (radicle waits for seeds, up to 3 minutes)"
+  case "$lane" in radicle) say "lane radicle: starting (waits up to 3 minutes for a seed to serve the commit)" ;; *) say "lane $lane: starting" ;; esac
   case "$lane" in
     github) lane_github ;; radicle) lane_radicle ;; nostr) lane_nostr ;; arweave) lane_arweave ;;
     *) warn "unknown lane: $lane" ;;

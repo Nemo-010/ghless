@@ -259,6 +259,21 @@ relocate_case() {
 }
 check "install repairs links after the checkout is moved; uninstall removes them all" relocate_case
 
+isolation_case() {
+  H7="$T/home7"; mkdir -p "$T/xdgout/ghless/data" "$H7"; echo leak > "$T/xdgout/ghless/data/nostr.key"
+  env -u GHLESS_PREFIX -u GHLESS_DATA -u GHLESS_WORK HOME="$H7" XDG_DATA_HOME="$T/xdgout" "$ROOT/install" --no-tools --no-skill >/dev/null 2>&1
+  [ ! -e "$H7/.local/share/ghless/data/nostr.key" ] && [ ! -e "$T/xdgout/ghless/bin" ]
+}
+check "install never reads identities from outside HOME" isolation_case
+
+uninstall_clean_case() {
+  H8="$T/home8"; mkdir -p "$H8"
+  env -u GHLESS_PREFIX -u GHLESS_DATA HOME="$H8" "$ROOT/install" --no-tools >/dev/null 2>&1
+  env -u GHLESS_PREFIX -u GHLESS_DATA HOME="$H8" "$ROOT/install" --no-tools --uninstall >/dev/null 2>&1
+  [ -z "$(find "$H8" -maxdepth 2 -not -path "$H8/.local*" -not -path "$H8" -print)" ]
+}
+check "uninstall leaves no empty profile files or skill dirs behind" uninstall_clean_case
+
 migrate_case() {
   H5="$T/home5"; mkdir -p "$H5/.local/bin" "$H5/.local/share/errand/data" "$T/errand-home/bin"
   echo k > "$H5/.local/share/errand/data/nostr.key"; : > "$T/errand-home/bin/errand"

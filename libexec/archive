@@ -109,12 +109,15 @@ if [ "$NET" = 1 ]; then
   if [ "$S_GITHUB" = 1 ]; then
     snapargs=""; [ "$DEEP" = 1 ] && snapargs="--save --poll --sweeps 8"
     # shellcheck disable=SC2086
+    say "ghre snapshot of $S_OWNER/$S_REPO (up to ${GHLESS_SNAPSHOT_SECS:-300}s; GHLESS_SNAPSHOT_SECS=0 skips it)"
+    if [ "${GHLESS_SNAPSHOT_SECS:-300}" = 0 ]; then net ghre-snap "$S_OWNER/$S_REPO" "skipped: GHLESS_SNAPSHOT_SECS=0"; else
     timeout "${GHLESS_SNAPSHOT_SECS:-300}" python3 "$GHLESS_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$OUT/ghre-snapshot" $snapargs >"$OUT/ghre-snapshot.log" 2>&1
     case $? in
       0) net ghre-snap "$S_OWNER/$S_REPO" ok ;;
       124) net ghre-snap "$S_OWNER/$S_REPO" "partial: stopped after ${GHLESS_SNAPSHOT_SECS:-300}s, rerun ghre snapshot to resume" ;;
       *) net ghre-snap "$S_OWNER/$S_REPO" "failed: see ghre-snapshot.log" ;;
     esac
+    fi
   fi
 fi
 
