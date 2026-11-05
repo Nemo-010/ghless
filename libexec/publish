@@ -166,8 +166,25 @@ lane_arweave() {
   url="arweave://$addr/$NAME"
   git -C "$STAGE" remote get-url arweave >/dev/null 2>&1 && git -C "$STAGE" remote set-url arweave "$url" || git -C "$STAGE" remote add arweave "$url"
   out=$(ARWEAVE_WALLET="$wallet" git -C "$STAGE" push arweave main 2>&1)
-  if [ $? -eq 0 ]; then result arweave "$url" ok
-  else result arweave "$url" "failed: $(printf '%s' "$out" | tail -n1)"; fi
+  if [ $? -eq 0 ]; then result arweave "$url" ok; return; fi
+  case "$out" in
+    *402*|*"upload returned"*) ;;
+    *) result arweave "$url" "failed: $(printf '%s' "$out" | tail -n1 | cut -c1-200)"; return ;;
+  esac
+  say "arweave: pack is over the free tier (402); publishing as parts under 100 KiB each"
+  parts="$ERRAND_DATA/publish/$NAME.arweave-parts"
+  mkdir -p "$parts"
+  names=$("$ERRAND_HOME/libexec/arweave-split.py" "$STAGE" "$parts" "$NAME" "$addr") ||
+    { result arweave "$url" "failed: cannot split under the free tier"; return; }
+  urls=""; bad=0
+  for pn in $names; do
+    purl="arweave://$addr/$pn"
+    git -C "$parts/$pn" remote get-url arweave >/dev/null 2>&1 && git -C "$parts/$pn" remote set-url arweave "$purl" || git -C "$parts/$pn" remote add arweave "$purl"
+    pout=$(ARWEAVE_WALLET="$wallet" git -C "$parts/$pn" push arweave main 2>&1) || { bad=$((bad + 1)); warn "arweave part $pn: $(printf '%s' "$pout" | tail -n1 | cut -c1-160)"; }
+    urls="$urls $purl"
+  done
+  if [ $bad -eq 0 ]; then result arweave "parts:$urls" ok
+  else result arweave "parts:$urls" "failed: $bad part(s) rejected"; fi
 }
 
 for lane in $(printf '%s' "$LANES" | tr ',' ' '); do

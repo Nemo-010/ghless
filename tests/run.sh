@@ -111,6 +111,20 @@ lane_refuses() { # a publish lane must not report ok without its tool
 }
 check "publish exits non-zero when no lane can run" lane_refuses
 
+split_case() {
+  "$ROOT/libexec/arweave-split.py" "$ROOT" "$T/parts" t TESTADDR 30000 >"$T/parts.out" 2>&1 || return 1
+  [ "$(wc -l < "$T/parts.out")" -ge 3 ] || return 1
+  mkdir "$T/joined"
+  for pn in $(cat "$T/parts.out"); do
+    [ "$(git -C "$T/parts/$pn" archive HEAD | gzip -9 | wc -c)" -le 31000 ] || { echo "$pn too big"; return 1; }
+    git -C "$T/parts/$pn" archive HEAD | tar -x -C "$T/joined" || return 1
+  done
+  for f in install bin/errand libexec/publish components/gh-forge/ghforge/jqish.py reference/cfrs-field-report/cfrs-field-report.md; do
+    git -C "$ROOT" show "HEAD:$f" | cmp -s - "$T/joined/$f" || { echo "$f differs after reassembly"; return 1; }
+  done
+}
+check "arweave split parts reassemble to the same files" split_case
+
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
   "$ROOT/bin/errand" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
