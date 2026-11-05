@@ -87,8 +87,8 @@ lane_radicle() {
     if direct_tcp "$h" "$p"; then
       seeds="$seeds $nid@$addr"; seedhosts="$seedhosts $host"
     elif warp_up; then
-      n=$((n + 1)); lp=$((18770 + n))
-      cfrs warp forward --detach --name "errand-rad-$n" --local "127.0.0.1:$lp=$h:$p" >/dev/null 2>&1 &&
+      n=$((n + 1)); lp=$(free_port)
+      cfrs warp forward --detach --replace --name "errand-rad-$n" --local "127.0.0.1:$lp=$h:$p" >/dev/null 2>&1 &&
         { seeds="$seeds $nid@127.0.0.1:$lp"; seedhosts="$seedhosts $host"; }
     fi
   done

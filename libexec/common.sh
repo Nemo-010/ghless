@@ -157,6 +157,11 @@ PY
 
 export CFRS_STATE_DIR="${CFRS_STATE_DIR:-$ERRAND_DATA/cfrs}"
 
+# free_port: a TCP port nothing listens on right now (forwards are host-global).
+free_port() {
+  python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
+}
+
 # warp_up: start the detached WARP proxy (idempotent). Needed on hosts whose
 # only egress is an HTTPS proxy: ngit and radicle speak raw TCP.
 warp_up() {
