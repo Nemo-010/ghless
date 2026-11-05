@@ -55,6 +55,7 @@ result() { # result LANE URL STATUS
   [ "$3" = ok ] && ok=$((ok + 1))
 }
 
+GHLESS_GITHUB_URL="${GHLESS_GITHUB_URL:-https://github.com}"
 lane_github() {
   github_authed || { result github "-" "skipped: no working GitHub token"; return; }
   login=$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)
@@ -62,12 +63,12 @@ lane_github() {
     GH_FORGE_MODE=real gh repo create "$login/$NAME" --public --description "$DESC" >/dev/null 2>&1 ||
       { result github "$login/$NAME" "failed: repo create"; return; }
   fi
-  git -C "$STAGE" remote get-url github >/dev/null 2>&1 || git -C "$STAGE" remote add github "https://github.com/$login/$NAME.git"
+  git -C "$STAGE" remote get-url github >/dev/null 2>&1 || git -C "$STAGE" remote add github "$GHLESS_GITHUB_URL/$login/$NAME.git"
   out=$(git_safe -C "$STAGE" -c credential.helper= -c 'credential.helper=!GH_FORGE_MODE=real gh auth git-credential' push github main 2>&1)
   if [ $? -eq 0 ]; then
-    result github "https://github.com/$login/$NAME" ok
+    result github "$GHLESS_GITHUB_URL/$login/$NAME" ok
   else
-    result github "https://github.com/$login/$NAME" "failed: $(printf '%s' "$out" | tail -n1)"
+    result github "$GHLESS_GITHUB_URL/$login/$NAME" "failed: $(printf '%s' "$out" | tail -n1)"
   fi
 }
 

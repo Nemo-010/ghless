@@ -191,6 +191,31 @@ gitweb_rerun_case() {
 }
 check "gitweb tolerates submodule entries, re-runs, and leaks no local path" gitweb_rerun_case
 
+github_lane_case() {
+  mkdir -p "$T/ghstub" "$T/ghremote/me"
+  cat > "$T/ghstub/gh" <<STUB
+#!/bin/sh
+case "\$*" in
+  "api user --jq .login") echo me; exit 0 ;;
+  "repo view me/"*) [ -d "$T/ghremote/me/\${3#me/}.git" ] ; exit \$? ;;
+  "repo create me/"*) n="\${3#me/}"; git init -q --bare "$T/ghremote/me/\$n.git"; exit 0 ;;
+esac
+exit 1
+STUB
+  chmod +x "$T/ghstub/gh"
+  export GHLESS_GITHUB_URL="file://$T/ghremote"
+  out=$(PATH="$T/ghstub:$PATH" "$ROOT/bin/ghless" publish "$FX" --name ghp --lanes github 2>&1) || { echo "$out"; return 1; }
+  [ "$(git --git-dir="$T/ghremote/me/ghp.git" rev-parse main)" = "$(git -C "$FX" rev-parse HEAD)" ] || { echo "remote head differs"; return 1; }
+  # a rewritten history must be rejected, never force-pushed
+  FXR="$T/fxr"; git clone -q "$FX" "$FXR"; git -C "$FXR" reset -q --hard HEAD~1
+  git -C "$FXR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m diverge
+  mkdir -p "$GHLESS_DATA/publish/ghp" && printf '%s' "$FXR" > "$GHLESS_DATA/publish/ghp/.git/ghless-source"
+  out=$(PATH="$T/ghstub:$PATH" "$ROOT/bin/ghless" publish "$FXR" --name ghp --lanes github 2>&1) && { echo "diverged push was accepted"; return 1; }
+  printf '%s' "$out" | grep -q 'failed' && [ "$(git --git-dir="$T/ghremote/me/ghp.git" rev-parse main)" = "$(git -C "$FX" rev-parse HEAD)" ]
+}
+check "github lane: creates the repo, pushes HEAD, refuses a diverged push (stub gh, file remote)" github_lane_case
+unset GHLESS_GITHUB_URL
+
 inject_case() {
   printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
   "$ROOT/bin/ghless" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
