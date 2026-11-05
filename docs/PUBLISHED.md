@@ -15,3 +15,13 @@ The github lane was skipped: no working GitHub token existed.
 A Cloudflare quick tunnel (`ghless serve`) and the Software Heritage and Wayback archive requests (`ghless archive`) are per-run
 and recorded in `$GHLESS_DATA/published.tsv`, not here.
 Later commits republish to the same addresses. The arweave parts only change when their content changes.
+
+## Current name: ghless
+
+| lane | address |
+| --- | --- |
+| radicle | `rad:zKhJSwoSxxUGapjaadUypw1UNXNn` |
+| nostr | `git clone nostr://npub1vzhvaumwpd0d6m5fh05cxqa5vqass0lw6jthk2s0enxtvjm7hlssu3m5d5/relay.ngit.dev/ghless` |
+| arweave | `arweave://7Gl3SLt5ps6EFNNnh6CavUcm4ZHPq65ir339LPF-quQ/ghless-partN`, N in 1..4 (copy every part's top-level entries into one directory) |
+
+`ghless status --check` shows what the ledger holds and whether the Radicle seeds serve the pushed commit.
