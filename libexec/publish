@@ -143,6 +143,8 @@ lane_radicle() {
     done
     [ -n "$have_copy" ] && break
     sleep 10; waited=$((waited + 10))
+    # seeds fetch on announcement; a dropped or timed-out peer misses it, so repeat it
+    [ $((waited % 60)) -eq 0 ] && (cd "$STAGE" && RAD_HOME="$RAD_HOME" timeout 30 rad sync --announce >/dev/null 2>&1)
   done
   if [ -n "$have_copy" ]; then result radicle "$rid (copy on:$have_copy)" ok
   else result radicle "$rid" "failed: no seed serves the pushed commit after 180s (node log: $RAD_HOME/node.stderr.log)"; fi
