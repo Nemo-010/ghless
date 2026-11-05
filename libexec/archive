@@ -7,14 +7,14 @@
 # Network part (skipped by --no-net), each step independent and logged to
 # NETWORK.tsv: Software Heritage "save code now" for the upstream URL and any
 # --public-url, Wayback Save Page Now (anonymous), ghre snapshot of the upstream
-# issues and pull requests (stops after GHLESS_SNAPSHOT_SECS, default 300). --deep adds ghre's per-page captures through the
+# issues and pull requests, run as a detached resumable job in $GHLESS_DATA/snapshots (--wait collects it, with progress lines, up to GHLESS_SNAPSHOT_SECS=1800). --deep adds ghre's per-page captures through the
 # pkgforge archive broker (slow: minutes to hours, resumable).
 set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
 . "$GHLESS_HOME/libexec/spec.sh"
 
-DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""; EXTRAS=""
+DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; WAIT=0; PUBURLS=""; EXTRAS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --name|--out|--public-url|--extra) [ $# -ge 2 ] || die "$1 needs a value"
@@ -24,6 +24,7 @@ $(abspath "$2")" ;; esac
       shift ;;
     --no-net) NET=0 ;;
     --deep) DEEP=1 ;;
+    --wait) WAIT=1 ;;
     -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
@@ -108,15 +109,32 @@ if [ "$NET" = 1 ]; then
   [ -n "$UPSTREAM" ] && parse_spec "$UPSTREAM"
   if [ "$S_GITHUB" = 1 ]; then
     snapargs=""; [ "$DEEP" = 1 ] && snapargs="--save --poll --sweeps 8"
-    # shellcheck disable=SC2086
-    say "ghre snapshot of $S_OWNER/$S_REPO (up to ${GHLESS_SNAPSHOT_SECS:-300}s; GHLESS_SNAPSHOT_SECS=0 skips it)"
-    if [ "${GHLESS_SNAPSHOT_SECS:-300}" = 0 ]; then net ghre-snap "$S_OWNER/$S_REPO" "skipped: GHLESS_SNAPSHOT_SECS=0"; else
-    timeout "${GHLESS_SNAPSHOT_SECS:-300}" python3 "$GHLESS_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$OUT/ghre-snapshot" $snapargs >"$OUT/ghre-snapshot.log" 2>&1
-    case $? in
-      0) net ghre-snap "$S_OWNER/$S_REPO" ok ;;
-      124) net ghre-snap "$S_OWNER/$S_REPO" "partial: stopped after ${GHLESS_SNAPSHOT_SECS:-300}s, rerun ghre snapshot to resume" ;;
-      *) net ghre-snap "$S_OWNER/$S_REPO" "failed: see ghre-snapshot.log" ;;
-    esac
+    SNAP="$GHLESS_DATA/snapshots/${S_OWNER}__${S_REPO}"; mkdir -p "$SNAP"
+    SNAPPID="$SNAP.pid"; SNAPLOG="$SNAP.log"
+    snap_running() { [ -s "$SNAPPID" ] && kill -0 "$(cat "$SNAPPID")" 2>/dev/null; }
+    if [ "${GHLESS_SNAPSHOT_SECS:-}" = 0 ]; then
+      net ghre-snap "$S_OWNER/$S_REPO" "skipped: GHLESS_SNAPSHOT_SECS=0"
+    else
+      if ! snap_running; then
+        # shellcheck disable=SC2086
+        detach_run "$SNAPLOG" python3 "$GHLESS_HOME/components/ghre/bin/ghre" snapshot "$S_OWNER/$S_REPO" --out "$SNAP" $snapargs
+        echo $! > "$SNAPPID"
+        say "ghre snapshot of $S_OWNER/$S_REPO started in the background (log: $SNAPLOG)"
+      else
+        say "ghre snapshot of $S_OWNER/$S_REPO is already running (pid $(cat "$SNAPPID"))"
+      fi
+      if [ "$WAIT" = 1 ]; then
+        waited=0; limit="${GHLESS_SNAPSHOT_SECS:-1800}"
+        while snap_running && [ "$waited" -lt "$limit" ]; do
+          sleep 15; waited=$((waited + 15))
+          say "snapshot running ${waited}s: $(find "$SNAP/issues" "$SNAP/prs" -name '*.json' 2>/dev/null | wc -l) objects so far, $(wc -l < "$SNAP/requests.tsv" 2>/dev/null || echo 0) requests"
+        done
+      fi
+      if snap_running; then state="running: $(find "$SNAP" -name '*.json' 2>/dev/null | wc -l) objects so far; it keeps going after this command. Re-run 'ghless archive --wait' to collect it"
+      elif grep -q . "$SNAP/INDEX.md" 2>/dev/null; then state="complete"
+      else state="ended without a result: see $SNAPLOG"; fi
+      rm -rf "$OUT/ghre-snapshot"; cp -a "$SNAP" "$OUT/ghre-snapshot" 2>/dev/null
+      net ghre-snap "$S_OWNER/$S_REPO" "$state"
     fi
   fi
 fi

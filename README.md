@@ -24,10 +24,10 @@ once, and the rest needs nothing else.
 | copy and work on it | `ghless fetch owner/repo [dir]` | direct git, then git through the broker, then the source tarball. Tags the upstream commit `ghless/source-base`, opens branch `ghless/work`. |
 | publish | `ghless publish [dir]` | github if a real token works, plus radicle, nostr (ngit/GRASP), arweave. Reports each lane. |
 | temporary public web | `ghless serve` | static git index plus dumb-HTTP clone over `cfrs serve` (Cloudflare quick tunnel). |
-| archive | `ghless archive [dir]` | git bundles (upstream base, your changes, all), patch series, tarball, SHA-256 manifest, zip; Software Heritage and Wayback requests; ghre snapshot of upstream issues and PRs. |
+| archive | `ghless archive [dir] [--wait]` | git bundles (upstream base, your changes, all), patch series, tarball, SHA-256 manifest, zip; Software Heritage and Wayback requests; ghre snapshot of upstream issues and PRs. |
 | recover a lost account | `ghre ledger`, `ghre recover`, `ghre snapshot` | the ghre tool, unchanged. See `components/ghre/PLAYBOOK.md`. |
 | bulk web archiving | `bulk-archive`, `spn2`, `megalodon`, ... | the bulk-archive kit. |
-| what went where | `ghless status [--check]` | ledger of every publish, optional live check of seeds and the tunnel |
+| what went where | `ghless status [--check]` | ledger of every publish; `--check` asks the Radicle seeds, the Nostr GRASP server, Arweave and the tunnel what they serve now |
 | back up keys | `ghless identity export F` / `import F` | one 0600 archive of the radicle, nostr and arweave keys |
 | preview | `ghless publish --dry-run` | which lanes are ready, nothing pushed |
 | share the project | `ghless pack` | zip of this tree plus `.sha256`. |

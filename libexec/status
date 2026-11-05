@@ -1,6 +1,6 @@
 #!/bin/sh
 # status: what was published where, from the ledger.
-#   ghless status [--check]    --check asks Radicle seeds and the git web index whether they still serve the commit
+#   ghless status [--check]    --check asks Radicle seeds, the Nostr GRASP server, Arweave and the git web index what they serve now
 set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
@@ -19,6 +19,17 @@ while IFS='	' read -r ts lane proj url st; do
       for h in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do
         head=$(curl -s -m 15 "https://$h/api/v1/repos/$rid" | jq -r '.payloads["xyz.radicle.project"].meta.head // "absent"' 2>/dev/null)
         printf '    %-22s head %s\n' "$h" "$head"
+      done ;;
+    nostr)
+      m=$(printf '%s' "$url" | sed -n 's#^nostr://\([^/]*\)/\([^/]*\)/\([^/]*\)$#\1 \2 \3#p')
+      [ -n "$m" ] || continue
+      set -- $m
+      head=$(curl -s -m 20 "https://$2/$1/$3.git/info/refs?service=git-upload-pack" | tr -d '\0' | grep -o '[0-9a-f]\{40\} HEAD' | head -n1 | cut -d' ' -f1)
+      printf '    %-22s head %s\n' "$2 (GRASP)" "${head:-absent}" ;;
+    arweave)
+      for u in $(printf '%s' "$url" | grep -o 'arweave://[A-Za-z0-9_/.-]*'); do
+        head=$(timeout 60 git ls-remote "$u" HEAD refs/heads/main 2>/dev/null | head -n1 | cut -c1-40)
+        printf '    %-22s head %s\n' "${u##*/}" "${head:-absent or not settled yet}"
       done ;;
     tunnel)
       c=$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$url/index.html"); printf '    index answers %s\n' "$c" ;;
