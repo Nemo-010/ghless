@@ -163,10 +163,10 @@ pack_ignored_case() {
   (cd "$T/pk3" && git ls-files -z | head -c0)
   mkdir -p "$T/pk3/components/ghre/work"; echo K > "$T/pk3/components/ghre/work/nostr.key"; echo K > "$T/pk3/tests/arweave-wallet.json"
   GHLESS_HOME="$T/pk3" "$T/pk3/bin/ghless" pack "$T/pk3.zip" >/dev/null 2>&1 || return 1
-  ! unzip -l "$T/pk3.zip" | grep -qE 'nostr.key|arweave-wallet.json'
+  ! unzip -l "$T/pk3.zip" | grep -qE 'nostr\.key|arweave-wallet\.json'
   [ $? -eq 0 ] || return 1
   GHLESS_HOME="$T/pk2" "$T/pk2/bin/ghless" pack "$T/pk2.zip" >/dev/null 2>&1 || return 1
-  ! unzip -l "$T/pk2.zip" | grep -qE 'nostr.key|arweave-wallet.json'
+  ! unzip -l "$T/pk2.zip" | grep -qE 'nostr\.key|arweave-wallet\.json'
 }
 gitcheck "pack never ships untracked or ignored key files (git and non-git trees)" pack_ignored_case
 
@@ -249,7 +249,7 @@ pack_git_case() {
   [ -n "$(git -C "$ROOT" status --porcelain)" ] && { cp -a "$ROOT/." "$T/packgit/"; git -C "$T/packgit" add -A; git -C "$T/packgit" -c user.name=t -c user.email=t@t commit -qm wip; }
   mkdir -p "$T/packgit/state"; echo SECRETKEY > "$T/packgit/state/nostr.key"
   GHLESS_HOME="$T/packgit" "$T/packgit/bin/ghless" pack "$T/pg.zip" >/dev/null 2>&1 || return 1
-  ! unzip -l "$T/pg.zip" | grep -q 'nostr.key' && unzip -l "$T/pg.zip" | grep -q 'ghless/install'
+  ! unzip -l "$T/pg.zip" | grep -q 'nostr\.key' && unzip -l "$T/pg.zip" | grep -q 'ghless/install'
 }
 gitcheck "pack of a dirty checkout never contains key files" pack_git_case
 
