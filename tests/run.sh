@@ -6,12 +6,16 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 NET=0; [ "${1:-}" = "--net" ] && NET=1
 T=$(mktemp -d "${TMPDIR:-/tmp}/errand-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
+IS_GIT=0; [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$ROOT" ] && IS_GIT=1
 ok() { PASS=$((PASS + 1)); printf 'ok    %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL  %s\n' "$1"; }
 check() { # check NAME CMD...
   n="$1"; shift
   if "$@" >"$T/out" 2>&1; then ok "$n"; else bad "$n"; sed 's/^/      /' "$T/out" | tail -8; fi
+}
+gitcheck() { # gitcheck NAME CMD...: needs ROOT to be a git checkout, skipped in an unzipped tree
+  if [ "$IS_GIT" = 1 ]; then check "$@"; else SKIP=$((SKIP + 1)); printf 'skip  %s (not a git checkout)\n' "$1"; fi
 }
 refuse() { # refuse NAME CMD... : passes only when the command exits non-zero
   n="$1"; shift
@@ -123,7 +127,7 @@ split_case() {
     git -C "$ROOT" show "HEAD:$f" | cmp -s - "$T/joined/$f" || { echo "$f differs after reassembly"; return 1; }
   done
 }
-check "arweave split parts reassemble to the same files" split_case
+gitcheck "arweave split parts reassemble to the same files" split_case
 
 fetch_pos_case() {
   "$ROOT/bin/errand" fetch "file://$FX" "$T/fp" >/dev/null 2>&1 || return 1
@@ -164,7 +168,7 @@ pack_ignored_case() {
   ERRAND_HOME="$T/pk2" "$T/pk2/bin/errand" pack "$T/pk2.zip" >/dev/null 2>&1 || return 1
   ! unzip -l "$T/pk2.zip" | grep -qE 'nostr.key|arweave-wallet.json'
 }
-check "pack never ships untracked or ignored key files (git and non-git trees)" pack_ignored_case
+gitcheck "pack never ships untracked or ignored key files (git and non-git trees)" pack_ignored_case
 
 binary_case() {
   B="$T/binrepo"; mkdir "$B"; git -C "$B" init -q -b main; head -c 2000 /dev/urandom > "$B/b.dat"; git -C "$B" add -A
@@ -222,7 +226,7 @@ pack_git_case() {
   ERRAND_HOME="$T/packgit" "$T/packgit/bin/errand" pack "$T/pg.zip" >/dev/null 2>&1 || return 1
   ! unzip -l "$T/pg.zip" | grep -q 'nostr.key' && unzip -l "$T/pg.zip" | grep -q 'errand-home/install'
 }
-check "pack of a dirty checkout never contains key files" pack_git_case
+gitcheck "pack of a dirty checkout never contains key files" pack_git_case
 
 noshallow_case() {
   SH="$T/shallow"; git clone -q --depth 1 "file://$FX" "$SH" 2>/dev/null
@@ -283,5 +287,5 @@ if [ "$NET" = 1 ]; then
   check "install --core twice in a scratch HOME is idempotent" install_case
 fi
 
-printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
+printf '\n%s passed, %s failed, %s skipped\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ]
