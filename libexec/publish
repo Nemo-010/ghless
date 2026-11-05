@@ -13,10 +13,11 @@ ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 DIR=""; NAME=""; LANES=""; DESC=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --name) shift; NAME="$1" ;;
-    --lanes) shift; LANES="$1" ;;
-    --desc) shift; DESC="$1" ;;
+    --name|--lanes|--desc) [ $# -ge 2 ] || die "$1 needs a value"
+      case "$1" in --name) NAME="$2" ;; --lanes) LANES="$2" ;; --desc) DESC="$2" ;; esac
+      shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
   esac
   shift
@@ -24,8 +25,8 @@ done
 DIR="$(cd "${DIR:-.}" && pwd)"
 git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
-NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^-*//')
-[ -n "$NAME" ] || die "name is empty after sanitising; pass --name"
+valid_name "$NAME" || NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^[-.]*//')
+valid_name "$NAME" || die "no usable name; pass --name (letters, digits, . _ -, not starting with . or -)"
 [ -n "$DESC" ] || DESC="$NAME, published by errand-home"
 if [ -z "$LANES" ]; then
   LANES="radicle,nostr,arweave"
@@ -35,6 +36,10 @@ fi
 STAGE="$ERRAND_DATA/publish/$NAME"
 mkdir -p "$STAGE"
 [ -d "$STAGE/.git" ] || git -C "$STAGE" init -q -b main
+if [ -f "$STAGE/.git/errand-source" ] && [ "$(cat "$STAGE/.git/errand-source")" != "$DIR" ]; then
+  die "name '$NAME' already publishes $(cat "$STAGE/.git/errand-source"); pass --name to publish $DIR separately"
+fi
+printf '%s' "$DIR" > "$STAGE/.git/errand-source"
 git -C "$STAGE" config user.name >/dev/null 2>&1 || git -C "$STAGE" config user.name errand
 git -C "$STAGE" config user.email >/dev/null 2>&1 || git -C "$STAGE" config user.email errand@users.noreply.invalid
 git_safe -C "$STAGE" fetch -q "$DIR" '+HEAD:refs/heads/incoming' || die "cannot read HEAD of $DIR"
@@ -57,10 +62,11 @@ lane_github() {
       { result github "$login/$NAME" "failed: repo create"; return; }
   fi
   git -C "$STAGE" remote get-url github >/dev/null 2>&1 || git -C "$STAGE" remote add github "https://github.com/$login/$NAME.git"
-  if git_safe -C "$STAGE" push -q github main --force 2>/dev/null; then
+  out=$(git_safe -C "$STAGE" -c credential.helper= -c 'credential.helper=!GH_FORGE_MODE=real gh auth git-credential' push github main 2>&1)
+  if [ $? -eq 0 ]; then
     result github "https://github.com/$login/$NAME" ok
   else
-    result github "https://github.com/$login/$NAME" "failed: push"
+    result github "https://github.com/$login/$NAME" "failed: $(printf '%s' "$out" | tail -n1)"
   fi
 }
 
@@ -131,6 +137,8 @@ lane_nostr() {
   ident=$(printf '%s' "$NAME" | tr 'A-Z' 'a-z')
   (
     cd "$STAGE" || exit 1
+    export XDG_DATA_HOME="$ERRAND_DATA/xdg"
+    mkdir -p "$XDG_DATA_HOME"
     if ! git remote get-url origin 2>/dev/null | grep -q '^nostr://'; then
       net_run ngit --nsec-file "$key" init --name "$NAME" --identifier "$ident" --description "$DESC" --defaults >/dev/null 2>&1 || exit 2
     else
@@ -151,10 +159,9 @@ lane_arweave() {
   have git-remote-arweave || { result arweave "-" "failed: git-remote-arweave not installed (errand tools install arweave)"; return; }
   wallet="$ERRAND_DATA/arweave-wallet.json"
   if [ ! -s "$wallet" ]; then
-    addr=$("$ERRAND_HOME/libexec/arweave-wallet.py" "$wallet") || { result arweave "-" "failed: wallet generation"; return; }
-    printf '%s' "$addr" > "$ERRAND_DATA/arweave-address.txt"
+    "$ERRAND_HOME/libexec/arweave-wallet.py" "$wallet" >/dev/null || { result arweave "-" "failed: wallet generation"; return; }
   fi
-  addr=$(cat "$ERRAND_DATA/arweave-address.txt" 2>/dev/null)
+  addr=$("$ERRAND_HOME/libexec/arweave-wallet.py" --address "$wallet" 2>/dev/null)
   [ -n "$addr" ] || { result arweave "-" "failed: wallet address unknown"; return; }
   url="arweave://$addr/$NAME"
   git -C "$STAGE" remote get-url arweave >/dev/null 2>&1 && git -C "$STAGE" remote set-url arweave "$url" || git -C "$STAGE" remote add arweave "$url"

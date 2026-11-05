@@ -15,7 +15,7 @@ errand: read, work on, publish and archive code with no GitHub account.
   errand publish [DIR] [--name N] [--lanes a,b]
                                      push to github (if authenticated), radicle, nostr, arweave
   errand archive [DIR] [--no-net]    bundles + patches + zip, SWH and Wayback requests
-  errand serve [DIR|--pub DIR]       git web index over a temporary cfrs tunnel
+  errand serve [NAME=PATH ...]       git web index over a temporary cfrs tunnel (--status, --stop)
   errand pack [OUT.zip]              zip errand-home itself
   errand identity [show|init]        mint or show the radicle, nostr and arweave identities
   errand tools [install|status]      pinned binaries (cfrs, rad, nak, ngit, git-remote-arweave)

@@ -2,6 +2,11 @@
 # shellcheck shell=sh
 
 : "${ERRAND_HOME:?ERRAND_HOME must be set before sourcing common.sh}"
+if [ -z "${HOME:-}" ]; then
+  HOME=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+  [ -n "$HOME" ] || { echo "errand: error: HOME is not set" >&2; exit 1; }
+  export HOME
+fi
 ERRAND_PREFIX="${ERRAND_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/errand}"
 ERRAND_DATA="${ERRAND_DATA:-$ERRAND_PREFIX/data}"
 ERRAND_BIN="${ERRAND_BIN:-$HOME/.local/bin}"
@@ -77,7 +82,37 @@ github_authed() {
   GH_FORGE_MODE=real gh api user --jq .login >/dev/null 2>&1
 }
 
-# zip_dir DIR OUT: zip(1) when present, else python's zipfile.
+# abspath PATH: absolute form of a path that may not exist yet.
+abspath() {
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) printf '%s/%s\n' "$PWD" "$1" ;;
+  esac
+}
+
+# valid_name NAME: a name safe to use as a directory and remote identifier.
+valid_name() {
+  case "$1" in
+    ""|.|..|-*|.*|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# export_tree SRC DEST: copy SRC to DEST without .git. For errand-home itself
+# only the shipped top-level entries are copied, so keys or state placed inside
+# the tree can never end up in a zip.
+export_tree() {
+  mkdir -p "$2"
+  if [ "$(cd "$1" && pwd)" = "$(cd "$ERRAND_HOME" && pwd)" ]; then
+    for _e in install README.md VERSION .gitignore bin libexec components reference docs skill pins tests; do
+      [ -e "$1/$_e" ] && (cd "$1" && tar --exclude=__pycache__ --exclude='*.pyc' -cf - "$_e") | (cd "$2" && tar -xf -)
+    done
+  else
+    (cd "$1" && tar --exclude=.git -cf - .) | (cd "$2" && tar -xf -)
+  fi
+}
+
+# zip_dir DIR OUT: zip(1) when present, else python's zipfile. OUT must be absolute.
 zip_dir() {
   _d="$1"; _o="$2"
   rm -f "$_o"

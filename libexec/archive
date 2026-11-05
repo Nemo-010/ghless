@@ -16,12 +16,13 @@ ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; PUBURLS=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --name) shift; NAME="$1" ;;
-    --out) shift; OUT="$1" ;;
+    --name|--out|--public-url) [ $# -ge 2 ] || die "$1 needs a value"
+      case "$1" in --name) NAME="$2" ;; --out) OUT="$(abspath "$2")" ;; --public-url) PUBURLS="$PUBURLS $2" ;; esac
+      shift ;;
     --no-net) NET=0 ;;
     --deep) DEEP=1 ;;
-    --public-url) shift; PUBURLS="$PUBURLS $1" ;;
     -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
   esac
   shift
@@ -29,6 +30,7 @@ done
 DIR="$(cd "${DIR:-.}" && pwd)"
 git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repository"
 [ -n "$NAME" ] || NAME=$(basename "$DIR")
+valid_name "$NAME" || die "bad name '$NAME': letters, digits, . _ -, not starting with . or -; pass --name"
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT="${OUT:-$ERRAND_DATA/archive}/$NAME-$TS"
 mkdir -p "$OUT"
@@ -39,13 +41,22 @@ HAS_BASE=0; G rev-parse -q --verify refs/tags/errand/source-base >/dev/null 2>&1
 HEADSHA=$(G rev-parse HEAD)
 
 if [ "$(G rev-parse --is-shallow-repository)" = true ]; then
-  say "shallow checkout: fetching full history so the archive is complete"
-  git_safe -C "$DIR" fetch -q --unshallow 2>/dev/null ||
-    git_safe -C "$DIR" fetch -q --unshallow "$BROKER/$UPSTREAM" 2>/dev/null ||
-    warn "could not unshallow; the bundles hold only the history this checkout has"
+  if [ "$NET" = 1 ]; then
+    say "shallow checkout: fetching full history so the archive is complete"
+    git_safe -C "$DIR" fetch -q --unshallow 2>/dev/null ||
+      git_safe -C "$DIR" fetch -q --unshallow "$BROKER/$UPSTREAM" 2>/dev/null ||
+      warn "could not unshallow; the bundles hold only the history this checkout has"
+  else
+    warn "shallow checkout and --no-net: the bundles hold only the history this checkout has"
+  fi
 fi
 G bundle create "$OUT/full.bundle" --all >/dev/null 2>&1 || die "cannot bundle $DIR"
 G archive --format=tar.gz --prefix="$NAME/" -o "$OUT/head.tar.gz" HEAD
+if [ -n "$(G status --porcelain)" ]; then
+  warn "uncommitted changes found: saved as uncommitted.patch and untracked.tar.gz (commit them to keep them in the bundles)"
+  G diff HEAD > "$OUT/uncommitted.patch"
+  G ls-files --others --exclude-standard -z | (cd "$DIR" && tar --null -T - -czf "$OUT/untracked.tar.gz" 2>/dev/null)
+fi
 if [ "$HAS_BASE" = 1 ]; then
   G bundle create "$OUT/source-base.bundle" errand/source-base >/dev/null 2>&1
   if [ "$(G rev-parse errand/source-base)" != "$HEADSHA" ]; then
@@ -66,6 +77,9 @@ Upstream: ${UPSTREAM:-none recorded (original work)}
     git -C base checkout errand/source-base
     git -C base am < ../changes.patch    # replay your changes on that base (if present)
     tar xzf head.tar.gz                  # HEAD without history
+
+If uncommitted.patch or untracked.tar.gz exist, the checkout had changes that were never committed:
+    git -C $NAME apply ../uncommitted.patch ; tar xzf untracked.tar.gz -C $NAME
 
 Verify first: sha256sum -c MANIFEST.sha256
 R

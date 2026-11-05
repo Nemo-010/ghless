@@ -1,6 +1,8 @@
 #!/bin/sh
 # serve: a git web index on a temporary public cfrs tunnel.
 #   errand serve [NAME=PATH | PATH ...]     (default: errand-home itself)
+# A directory that is not a git checkout (or a dirty errand-home) is snapshotted
+# into a scratch repo first, so a zip-installed tree can be served.
 #   errand serve --stop | --status
 # Repos are published as static files (browsable pages plus dumb-HTTP clone) in
 # $ERRAND_DATA/pub, served by a detached `cfrs serve`. The URL changes whenever
@@ -14,22 +16,34 @@ INSTANCE=errand-pub
 
 case "${1:-}" in
   --stop) cfrs stop "$INSTANCE" 2>&1; exit $? ;;
-  --status) cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; exit 0 ;;
+  --status) if cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)" | grep -q "^$INSTANCE"; then cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; else echo "no tunnel is running (start one with: errand serve)"; fi; exit 0 ;;
 esac
 
 [ $# -gt 0 ] || set -- "errand-home=$ERRAND_HOME"
-specs=""
-for a in "$@"; do
+mkdir -p "$PUB" "$ERRAND_DATA/snap"
+n_args=$#; i=0; CLONES=""
+while [ "$i" -lt "$n_args" ]; do
+  a="$1"; shift; i=$((i + 1))
   case "$a" in
+    -*) die "unknown option: $a" ;;
     *=*) n="${a%%=*}"; p="${a#*=}" ;;
-    *) p="$a"; n=$(basename "$(cd "$a" && pwd)") ;;
+    *) p="$a"; n=$(basename "$(cd "$a" 2>/dev/null && pwd)") ;;
   esac
   [ -d "$p" ] || die "no such directory: $p"
-  specs="$specs $n=$(cd "$p" && pwd)"
+  valid_name "$n" || die "bad name '$n': letters, digits, . _ -, not starting with . or -"
+  p=$(cd "$p" && pwd)
+  if [ "$(git -C "$p" rev-parse --show-toplevel 2>/dev/null)" != "$p" ] || { [ "$p" = "$ERRAND_HOME" ] && [ -n "$(git -C "$p" status --porcelain 2>/dev/null)" ]; }; then
+    snap="$ERRAND_DATA/snap/$n"
+    rm -rf "$snap"; export_tree "$p" "$snap"
+    git -C "$snap" init -q -b main
+    git -C "$snap" add -A
+    git -C "$snap" -c user.name=errand -c user.email=errand@users.noreply.invalid commit -q -m "snapshot of $p at $(now_utc)"
+    p="$snap"
+  fi
+  set -- "$@" "$n=$p"
+  CLONES="$CLONES $n"
 done
-mkdir -p "$PUB"
-# shellcheck disable=SC2086
-python3 "$ERRAND_HOME/libexec/gitweb-static.py" "$PUB" $specs || die "could not build the index"
+python3 "$ERRAND_HOME/libexec/gitweb-static.py" "$PUB" "$@" || warn "some repositories were not published (see above)"
 
 doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
 url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
@@ -37,6 +51,6 @@ url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
 [ -n "$url" ] || die "no URL in cfrs output: $doc"
 code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url/index.html")
 say "serving $PUB (index answers $code)"
-for s in $specs; do echo "git clone $url/${s%%=*}.git"; done
+for n in $CLONES; do [ -d "$PUB/$n.git" ] && echo "git clone $url/$n.git"; done
 echo "$url"
-ledger_add tunnel "$(printf '%s' "$specs" | sed 's/=[^ ]*//g')" "$url" "$code"
+ledger_add tunnel "$CLONES" "$url" "$code"

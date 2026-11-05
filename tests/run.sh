@@ -111,6 +111,60 @@ lane_refuses() { # a publish lane must not report ok without its tool
 }
 check "publish exits non-zero when no lane can run" lane_refuses
 
+inject_case() {
+  printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/evil.sh"; chmod +x "$T/evil.sh"
+  "$ROOT/bin/errand" fetch "file://$FX" "$T/i1" --ref "main --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
+  "$ROOT/bin/errand" fetch "file://$FX" "$T/i2" --depth "1 --upload-pack=$T/evil.sh" >/dev/null 2>&1 && return 1
+  "$ROOT/bin/errand" fetch "file://$FX --upload-pack=$T/evil.sh" "$T/i3" >/dev/null 2>&1 && return 1
+  [ ! -e "$T/PWNED" ]
+}
+check "fetch refuses option injection through ref, depth and spec" inject_case
+
+name_case() {
+  for bad in .. . ...; do
+    "$ROOT/bin/errand" publish "$FX" --name "$bad" --lanes none >"$T/nm.out" 2>&1
+    grep -q 'no usable name' "$T/nm.out" || { echo "name '$bad' was not refused for its name: $(cat "$T/nm.out")"; return 1; }
+  done
+  mkdir -p "$ERRAND_DATA" && : > "$ERRAND_DATA/nostr.key"
+  python3 "$ROOT/libexec/gitweb-static.py" "$ERRAND_DATA/pub" "..=$FX" >/dev/null 2>&1 && return 1
+  [ -e "$ERRAND_DATA/nostr.key" ] && [ ! -d "$ERRAND_DATA/.git" ]
+}
+check "names like .. are refused by publish and gitweb, data dir untouched" name_case
+
+collide_case() {
+  "$ROOT/bin/errand" publish "$FX" --name same --lanes none >/dev/null 2>&1
+  FX2="$T/fx2"; mkdir "$FX2"; git -C "$FX2" init -q -b main; : > "$FX2/f"; git -C "$FX2" add f; git -C "$FX2" -c user.name=t -c user.email=t@t commit -qm other
+  "$ROOT/bin/errand" publish "$FX2" --name same --lanes none >"$T/col.out" 2>&1 && return 1
+  grep -q 'already publishes' "$T/col.out"
+}
+check "two projects cannot share a publish name" collide_case
+
+pack_git_case() {
+  git clone -q "$ROOT" "$T/packgit" 2>/dev/null || return 1
+  [ -n "$(git -C "$ROOT" status --porcelain)" ] && { cp -a "$ROOT/." "$T/packgit/"; git -C "$T/packgit" add -A; git -C "$T/packgit" -c user.name=t -c user.email=t@t commit -qm wip; }
+  mkdir -p "$T/packgit/state"; echo SECRETKEY > "$T/packgit/state/nostr.key"
+  ERRAND_HOME="$T/packgit" "$T/packgit/bin/errand" pack "$T/pg.zip" >/dev/null 2>&1 || return 1
+  ! unzip -l "$T/pg.zip" | grep -q 'nostr.key' && unzip -l "$T/pg.zip" | grep -q 'errand-home/install'
+}
+check "pack of a dirty checkout never contains key files" pack_git_case
+
+noshallow_case() {
+  SH="$T/shallow"; git clone -q --depth 1 "file://$FX" "$SH" 2>/dev/null
+  echo wip > "$SH/untracked.txt"
+  (cd "$T" && "$ROOT/bin/errand" archive "$SH" --no-net --out relout >"$T/ns.out" 2>&1) || return 1
+  [ "$(git -C "$SH" rev-parse --is-shallow-repository)" = true ] || return 1
+  z=$(ls "$T"/relout/*/untracked.tar.gz 2>/dev/null | head -n1); [ -n "$z" ]
+}
+check "archive --no-net stays offline, takes relative --out, keeps untracked files" noshallow_case
+
+spn_case() {
+  mkdir -p "$T/stub"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/args.log"\nprintf "{\\"job_id\\":\\"x\\"}\\n200"\n' "$T" > "$T/stub/curl"; chmod +x "$T/stub/curl"
+  PATH="$T/stub:$PATH" sh "$ROOT/components/bulk-archive/bin/spn2.sh" -a SECRETKEY:abc -r 1 https://example.org >/dev/null 2>&1
+  [ -s "$T/args.log" ] && ! grep -q SECRETKEY "$T/args.log"
+}
+check "spn2 keeps the access key off curl's argv" spn_case
+
 if [ "$NET" = 1 ]; then
   check "read README (live)" sh -c "'$ROOT/bin/errand' read octocat/Hello-World | head -c 20 | grep -q ."
   check "fetch live" sh -c "'$ROOT/bin/errand' fetch octocat/Hello-World '$T/hw' --depth 1 >/dev/null 2>&1 && git -C '$T/hw' rev-parse errand/source-base"
@@ -123,13 +177,32 @@ if [ "$NET" = 1 ]; then
   }
   check "tampered pin is refused and leaves no binary" pin_refusal
 
+  tamper_case() {
+    ERRAND_HOME="$ROOT" ERRAND_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
+    printf '#!/bin/sh\necho fake\n' > "$T/tp/bin/nak"
+    ERRAND_HOME="$ROOT" ERRAND_PREFIX="$T/tp" "$ROOT/libexec/tools" install nak >/dev/null 2>&1 || return 1
+    [ "$(sha256sum "$T/tp/bin/nak" | cut -d' ' -f1)" = "$(grep '^NAK_SHA_x86_64' "$ROOT/pins/pins.env" | cut -d'"' -f2)" ] || [ "$(uname -m)" != x86_64 ]
+  }
+  check "a replaced binary is reinstalled, not trusted" tamper_case
+
   install_case() {
     H="$T/home"; mkdir -p "$H"
     HOME="$H" ERRAND_PREFIX="$H/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >"$T/i1.out" 2>&1 || return 1
     HOME="$H" ERRAND_PREFIX="$H/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >"$T/i2.out" 2>&1 || return 1
     grep -q 'already installed' "$T/i2.out" || return 1
     [ "$(grep -c '>>> errand-home' "$H/.profile")" = 1 ] || return 1
-    [ -L "$H/.local/bin/errand" ] && [ -x "$H/p/bin/cfrs" ]
+    [ -L "$H/.local/bin/errand" ] && [ -x "$H/p/bin/cfrs" ] || return 1
+    # profile without trailing newline, existing real gh, unterminated marker
+    H2="$T/home2"; mkdir -p "$H2/.local/bin"
+    printf '# mine' > "$H2/.profile"; printf 'echo realgh\n' > "$H2/.local/bin/gh"
+    printf 'a=1\n# >>> errand-home >>>\nb=2\n' > "$H2/.bashrc"
+    HOME="$H2" ERRAND_PREFIX="$H2/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
+    HOME="$H2" ERRAND_PREFIX="$H2/p" ERRAND_DATA= "$ROOT/install" --core --no-skill >/dev/null 2>&1
+    sh -n "$H2/.profile" || return 1
+    [ "$(grep -c '>>> errand-home' "$H2/.profile")" = 1 ] || return 1
+    grep -q '^# mine$' "$H2/.profile" || return 1
+    [ "$(cat "$H2/.local/bin/gh")" = "echo realgh" ] || return 1
+    [ "$(wc -l < "$H2/.bashrc")" = 3 ]
   }
   check "install --core twice in a scratch HOME is idempotent" install_case
 fi

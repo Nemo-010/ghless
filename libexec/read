@@ -10,6 +10,7 @@ ERRAND_HOME="${ERRAND_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 [ $# -ge 1 ] || die "usage: errand read SPEC [PATH] [REF]"
 parse_spec "$1" || die "cannot understand: $1"
 [ "$S_GITHUB" = 1 ] || die "read supports github.com specs; use errand fetch for other hosts"
+[ -z "$S_EXTRA" ] || die "unsupported GitHub URL path '$S_EXTRA'; read supports owner/repo, tree/ and blob/ URLs (releases and issues: use gh)"
 P="${2:-$S_PATH}"; REF="${3:-$S_REF}"
 FORGE=https://forge.web.pkgforge.dev/github
 

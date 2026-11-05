@@ -7,7 +7,10 @@ BRIEF=0; [ "${1:-}" = "--brief" ] && BRIEF=1
 rc=0
 
 row() { printf '%-22s %-8s %s\n' "$1" "$2" "$3"; }
-code() { curl -s -m 20 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null; }
+code() {
+  c=$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)
+  case "$c" in 2*|3*) printf 'ok(%s)' "$c" ;; *) printf 'FAIL(%s)' "$c" ;; esac
+}
 
 for t in git curl python3; do
   if have "$t"; then row "$t" ok "$($t --version 2>&1 | head -n1)"; else row "$t" MISSING required; rc=1; fi

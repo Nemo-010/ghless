@@ -5,9 +5,12 @@ change, publish and archive code. It melds five earlier pieces (see
 `docs/PROVENANCE.md`) behind one installer and one command, `errand`.
 
 ```sh
-./install            # once; idempotent; needs sudo only if system packages are missing
-errand doctor        # what works on this host
+./install                                    # once; idempotent; sudo only if system packages are missing
+. ~/.local/share/errand/env.sh               # this shell (login shells load it from ~/.profile)
+errand doctor                                # what works on this host
 ```
+
+Keep the checkout: the links and the profile block point into it.
 
 Fetch the repo from a zip, a decentralized host, or GitHub, run `./install`
 once, and the rest needs nothing else.
@@ -16,7 +19,7 @@ once, and the rest needs nothing else.
 
 | need | command | how it works |
 | --- | --- | --- |
-| read any public GitHub asset | `errand read owner/repo [path]`, `gh ...` | raw.githubusercontent.com, then the fetch broker, then the forge API. `gh` is the real gh when its token works, else a read-only forge proxy with the same argv and output shapes (gh-forge). |
+| read any public GitHub asset | `errand read owner/repo [path]`, `gh ...` | with a path: raw.githubusercontent.com, the fetch broker, then the forge API. Without a path: the README from the forge API, then api.github.com. `gh` is the real gh when its token works, else a read-only forge proxy with the same argv and output shapes (gh-forge). |
 | copy and work on it | `errand fetch owner/repo [dir]` | direct git, then git through the broker, then the source tarball. Tags the upstream commit `errand/source-base`, opens branch `errand/work`. |
 | publish | `errand publish [dir]` | github if a real token works, plus radicle, nostr (ngit/GRASP), arweave. Reports each lane. |
 | temporary public web | `errand serve` | static git index plus dumb-HTTP clone over `cfrs serve` (Cloudflare quick tunnel). |
@@ -35,12 +38,12 @@ github lane first. The other lanes and the archive keep running regardless.
 
 1. System packages through the detected package manager (apt, apk, dnf, pacman): git, curl, python3, jq, unzip, zip, tar, gzip, xz, openssl, ssh, go. Missing ones only.
 2. Pinned binaries into `$ERRAND_PREFIX/bin` (default `~/.local/share/errand/bin`), each checked against a SHA-256 in `pins/pins.env`. A mismatch deletes the download and fails that tool. cfrs, Radicle, nak and ngit are release binaries; git-remote-arweave has no releases and is built with Go from a pinned commit.
-3. Symlinks in `~/.local/bin` (errand, gh, ghre, bulk-archive, spn2, ...), and a marked block in `~/.profile` and `~/.bashrc` that puts it first on `PATH`.
+3. Symlinks in `~/.local/bin` (errand, gh, ghre, bulk-archive, spn2, ...). A link is never written over a real file; a pre-existing `~/.local/bin/gh` is left alone with a warning. `$ERRAND_PREFIX/env.sh` sets `PATH` and the errand variables; a marked block in `~/.profile` and `~/.bashrc` sources it (a block with a missing end marker is left untouched).
 4. The skill is linked into `~/.claude/skills/errand-home` and `~/.agents/skills/errand-home`.
 5. `errand doctor --brief` as a check.
 
 `--core` installs packages and cfrs only. Lanes can be added later with `errand tools install radicle nak ngit arweave`.
-Pins move only by editing `pins/pins.env`; `errand update-check` shows what upstream has.
+Hermetic scope: the binaries are pinned and checksummed. The Go toolchain and modules used for git-remote-arweave are verified by Go (go.sum, checksum database), not pinned by errand, and Go's state lives in `$ERRAND_PREFIX/go`. `tools install` re-checks the installed binary against the sha256 recorded at install time and reinstalls if it differs. Pins move only by editing `pins/pins.env`; `errand update-check` shows what upstream has.
 
 State: `$ERRAND_DATA` (default `~/.local/share/errand/data`) holds identities
 (`radicle/`, `nostr.key`, `arweave-wallet.json`, all private), `work/`,
@@ -58,7 +61,7 @@ call so `up`, `exec` and `forward` always agree. Details and limits:
 
 ## Tests
 
-`sh tests/run.sh` runs offline checks (syntax, spec parsing, gitweb build and clone, pack, pin refusal, installer idempotency in a scratch HOME, ghre unit tests). `sh tests/run.sh --net` adds live fetch/read routes.
+`sh tests/run.sh` runs offline checks (syntax, spec parsing, injection and name guards, gitweb build and clone, archive replay, pack with and without git, profile editing, ghre unit tests). `sh tests/run.sh --net` adds live fetch and read, refusal of a tampered pin, and a scratch-HOME install run twice.
 
 ## Layout
 

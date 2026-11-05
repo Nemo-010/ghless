@@ -12,14 +12,23 @@ and OUTDIR/index.html listing every repo. The output is static files only.
 """
 import html
 import os
+import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 MAX_VIEW = 512 * 1024
 CSS = ("body{font:15px/1.5 system-ui,sans-serif;max-width:60rem;margin:2rem auto;padding:0 1rem}"
        "pre{background:#f4f4f4;padding:.8rem;overflow:auto}code{background:#f4f4f4;padding:0 .2rem}"
        "table{border-collapse:collapse}td,th{padding:.15rem .8rem .15rem 0;text-align:left}")
+
+
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def href(path: str) -> str:
+    return html.escape(urllib.parse.quote(path), quote=True)
 
 
 def git(*args, cwd=None, check=True):
@@ -40,8 +49,10 @@ def build_repo(out, name, src):
     bare = os.path.join(out, f"{name}.git")
     if os.path.isdir(bare):
         git("fetch", "-q", "--force", "--tags", src, "+refs/heads/*:refs/heads/*", cwd=bare)
+        git("remote", "remove", "origin", cwd=bare, check=False)
     else:
         git("clone", "-q", "--bare", src, bare)
+        git("remote", "remove", "origin", cwd=bare, check=False)
     head = git("symbolic-ref", "-q", "HEAD", cwd=bare, check=False).decode().strip()
     if not head or not git("rev-parse", "-q", "--verify", head, cwd=bare, check=False):
         branches = git("for-each-ref", "--format=%(refname)", "refs/heads", cwd=bare).decode().split()
@@ -61,6 +72,8 @@ def build_repo(out, name, src):
     files = [f for f in files if f]
     rows = []
     for f in files:
+        if f.startswith("/") or ".." in f.split("/"):
+            continue
         data = git("cat-file", "blob", f"HEAD:{f}", cwd=bare)
         if is_text(data) and len(data) <= MAX_VIEW:
             dest = os.path.join(site, "view", f + ".html")
@@ -68,7 +81,7 @@ def build_repo(out, name, src):
             with open(dest, "w", encoding="utf-8") as fh:
                 fh.write(page(f, f"<p><a href='{'../' * (f.count('/') + 1)}index.html'>{html.escape(name)}</a> / "
                                  f"<b>{html.escape(f)}</b></p><pre>{html.escape(data.decode('utf-8', 'replace'))}</pre>"))
-            rows.append(f"<tr><td><a href='view/{html.escape(f)}.html'>{html.escape(f)}</a></td><td>{len(data)}</td></tr>")
+            rows.append(f"<tr><td><a href='view/{href(f)}.html'>{html.escape(f)}</a></td><td>{len(data)}</td></tr>")
         else:
             rows.append(f"<tr><td>{html.escape(f)} (not shown)</td><td>{len(data)}</td></tr>")
 
@@ -83,7 +96,7 @@ def build_repo(out, name, src):
                        for line in log.splitlines())
     body = (f"<p><a href='../index.html'>all repositories</a></p><h1>{html.escape(name)}</h1>"
             f"<p>Clone: <code>git clone &lt;this-site&gt;/{html.escape(name)}.git</code> &middot; "
-            f"<a href='{html.escape(name)}.zip'>zip of HEAD</a></p>"
+            f"<a href='{href(name)}.zip'>zip of HEAD</a></p>"
             f"{readme}<h2>Recent commits</h2><table>{log_rows}</table>"
             f"<h2>Files ({len(files)})</h2><table>{''.join(rows)}</table>")
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as fh:
@@ -98,21 +111,29 @@ def main():
         return 2
     out = sys.argv[1]
     os.makedirs(out, exist_ok=True)
-    items = []
+    items, failed = [], []
     for spec in sys.argv[2:]:
         name, _, src = spec.partition("=")
-        if not name or not src:
-            print(f"bad spec: {spec}", file=sys.stderr)
-            return 2
-        items.append(build_repo(out, name, src))
-    rows = "".join(f"<tr><td><a href='{html.escape(n)}/index.html'>{html.escape(n)}</a></td>"
+        if not NAME_RE.match(name) or not src:
+            print(f"refused spec {spec!r}: name must match {NAME_RE.pattern}", file=sys.stderr)
+            failed.append(name)
+            continue
+        try:
+            items.append(build_repo(out, name, src))
+        except (subprocess.CalledProcessError, SystemExit) as exc:
+            detail = exc.stderr.decode(errors="replace").strip() if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+            print(f"{name}: not published: {detail}", file=sys.stderr)
+            failed.append(name)
+    if not items:
+        return 1
+    rows = "".join(f"<tr><td><a href='{href(n)}/index.html'>{html.escape(n)}</a></td>"
                    f"<td><code>{h}</code></td><td>{html.escape(s)}</td></tr>" for n, h, s in items)
     body = ("<h1>errand git index</h1><p>Every repository here clones over plain HTTP: "
             "<code>git clone &lt;this-site&gt;/NAME.git</code></p>"
             f"<table><tr><th>repo</th><th>HEAD</th><th>last commit</th></tr>{rows}</table>")
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page("errand git index", body))
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

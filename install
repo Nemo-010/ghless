@@ -22,13 +22,16 @@ USER_DATA="${ERRAND_DATA:-}"; USER_WORK="${ERRAND_WORK:-}"
 CORE=0; GHSHIM=1; SKILL=1; EDITPATH=1; UNINSTALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --prefix|--bin) [ $# -ge 2 ] || die "$1 needs a value" ;;
+  esac
+  case "$1" in
     --core) CORE=1 ;;
     --no-gh-shim) GHSHIM=0 ;;
     --no-skill) SKILL=0 ;;
     --no-path) EDITPATH=0 ;;
     --uninstall) UNINSTALL=1 ;;
-    --prefix) shift; ERRAND_PREFIX="$1"; ERRAND_DATA="${USER_DATA:-$1/data}"; ERRAND_WORK="${USER_WORK:-$ERRAND_DATA/work}"; PATH="$1/bin:$PATH"; export ERRAND_PREFIX ERRAND_DATA ERRAND_WORK PATH ;;
-    --bin) shift; ERRAND_BIN="$1"; export ERRAND_BIN ;;
+    --prefix) shift; ERRAND_PREFIX="$(abspath "$1")"; ERRAND_DATA="${USER_DATA:-$ERRAND_PREFIX/data}"; ERRAND_WORK="${USER_WORK:-$ERRAND_DATA/work}"; PATH="$ERRAND_PREFIX/bin:$PATH"; export ERRAND_PREFIX ERRAND_DATA ERRAND_WORK PATH ;;
+    --bin) shift; ERRAND_BIN="$(abspath "$1")"; export ERRAND_BIN ;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
@@ -68,9 +71,13 @@ profile_files() {
   done
 }
 
-strip_block() { # strip_block FILE
+strip_block() { # strip_block FILE: removes a complete marked block, never a half one
   [ -f "$1" ] || return 0
-  grep -qF "$MARK_BEGIN" "$1" || return 0
+  grep -qxF "$MARK_BEGIN" "$1" || return 0
+  if ! grep -qxF "$MARK_END" "$1"; then
+    warn "$1 has a begin marker without an end marker; left untouched"
+    return 1
+  fi
   tmp="$1.errand.$$"
   awk -v b="$MARK_BEGIN" -v e="$MARK_END" '$0==b{skip=1;next} $0==e{skip=0;next} !skip' "$1" > "$tmp" && cat "$tmp" > "$1"
   rm -f "$tmp"
@@ -81,7 +88,11 @@ if [ "$UNINSTALL" = 1 ]; then
     t=$(link_target "$n")
     [ "$(readlink "$ERRAND_BIN/$n" 2>/dev/null)" = "$t" ] && rm -f "$ERRAND_BIN/$n" && say "removed $ERRAND_BIN/$n"
   done
-  for f in $(profile_files); do strip_block "$f"; done
+  for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
+    [ "$(readlink "$ERRAND_BIN/$b" 2>/dev/null)" = "$ERRAND_PREFIX/bin/$b" ] && rm -f "$ERRAND_BIN/$b" && say "removed $ERRAND_BIN/$b"
+  done
+  profile_files | while IFS= read -r f; do strip_block "$f"; done
+  rm -f "$ERRAND_PREFIX/env.sh"
   for d in $SKILL_DIRS; do
     [ -L "$d/errand-home" ] && rm -f "$d/errand-home" && say "removed $d/errand-home"
   done
@@ -106,11 +117,11 @@ if [ -n "$need" ]; then
         $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates $need >/dev/null; } ||
       warn "apt-get could not install:$need"
   elif have apk; then
-    $SUDO apk add --no-cache git curl python3 jq unzip zip tar gzip xz openssh-client go ca-certificates >/dev/null || warn "apk failed"
+    $SUDO apk add --no-cache git curl python3 jq unzip zip tar gzip xz openssl openssh-client go ca-certificates >/dev/null || warn "apk failed"
   elif have dnf; then
-    $SUDO dnf install -y git curl python3 jq unzip zip tar gzip xz openssh-clients golang ca-certificates >/dev/null || warn "dnf failed"
+    $SUDO dnf install -y git curl python3 jq unzip zip tar gzip xz openssl openssh-clients golang ca-certificates >/dev/null || warn "dnf failed"
   elif have pacman; then
-    $SUDO pacman -S --noconfirm --needed git curl python jq unzip zip tar gzip xz openssh go >/dev/null || warn "pacman failed"
+    $SUDO pacman -S --noconfirm --needed git curl python jq unzip zip tar gzip xz openssl openssh go >/dev/null || warn "pacman failed"
   else
     warn "no known package manager; install manually:$need"
   fi
@@ -119,8 +130,12 @@ for must in git curl python3; do
   have "$must" || die "$must is required and could not be installed"
 done
 
-# 2. Pinned binaries.
+# 2. Pinned binaries. A tree unpacked without mode bits is repaired first.
+chmod +x "$ERRAND_HOME/install" "$ERRAND_HOME/bin/errand" "$ERRAND_HOME"/libexec/* \
+  "$ERRAND_HOME"/components/ghre/bin/* "$ERRAND_HOME"/components/bulk-archive/bin/* \
+  "$ERRAND_HOME/components/gh-forge/bin/gh" "$ERRAND_HOME/reference/anonymous-git-hosting/scripts/socks-relay.py" 2>/dev/null
 mkdir -p "$ERRAND_PREFIX/bin" "$ERRAND_DATA" "$ERRAND_WORK" "$ERRAND_BIN"
+chmod 700 "$ERRAND_DATA" 2>/dev/null
 rc=0
 if [ "$CORE" = 1 ]; then
   "$ERRAND_HOME/libexec/tools" install cfrs || rc=1
@@ -129,29 +144,44 @@ else
 fi
 
 # 3. Commands on PATH.
+put_link() { # put_link NAME TARGET: never replaces a file that is not one of our links
+  if [ -e "$ERRAND_BIN/$1" ] || [ -L "$ERRAND_BIN/$1" ]; then
+    if [ ! -L "$ERRAND_BIN/$1" ]; then
+      warn "$ERRAND_BIN/$1 is a real file; left in place (move it, then re-run)"
+      return 1
+    fi
+  fi
+  ln -sfn "$2" "$ERRAND_BIN/$1"
+}
 for n in $LINKS; do
   t=$(link_target "$n")
-  [ -e "$t" ] || { warn "missing $t"; continue; }
-  chmod +x "$t" 2>/dev/null
-  ln -sfn "$t" "$ERRAND_BIN/$n"
+  [ -e "$t" ] || { warn "missing $t"; rc=1; continue; }
+  put_link "$n" "$t" || rc=1
 done
 if [ "$GHSHIM" = 1 ]; then
-  chmod +x "$ERRAND_HOME/components/gh-forge/bin/gh"
-  ln -sfn "$(link_target gh)" "$ERRAND_BIN/gh"
+  put_link gh "$(link_target gh)" || warn "gh wrapper not installed: your existing gh stays first"
 fi
-# The binaries installed by tools are reachable by name as well.
-for b in cfrs rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
-  [ -x "$ERRAND_PREFIX/bin/$b" ] && ln -sfn "$ERRAND_PREFIX/bin/$b" "$ERRAND_BIN/$b"
+for b in cfrs pod-netns rad radicle-node git-remote-rad nak ngit git-remote-nostr git-remote-arweave arweave-git; do
+  [ -x "$ERRAND_PREFIX/bin/$b" ] && { put_link "$b" "$ERRAND_PREFIX/bin/$b" || rc=1; }
 done
 
-# 4. PATH for future shells.
+# 4. PATH for future shells. env.sh is the one file to source from scripts and
+# non-interactive agent shells; the profile block sources nothing else.
+cat > "$ERRAND_PREFIX/env.sh" <<ENV
+# errand-home environment. Source this: . "$ERRAND_PREFIX/env.sh"
+ERRAND_HOME="$ERRAND_HOME"
+ERRAND_PREFIX="$ERRAND_PREFIX"
+ERRAND_DATA="\${ERRAND_DATA:-$ERRAND_DATA}"
+case ":\$PATH:" in ":$ERRAND_BIN:"*) ;; *) PATH="$ERRAND_BIN:\$PATH" ;; esac
+export ERRAND_HOME ERRAND_PREFIX ERRAND_DATA PATH
+ENV
 if [ "$EDITPATH" = 1 ]; then
-  for f in $(profile_files); do
-    strip_block "$f"
+  profile_files | while IFS= read -r f; do
+    strip_block "$f" || continue
+    [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
     {
       printf '%s\n' "$MARK_BEGIN"
-      printf 'case ":$PATH:" in *":%s:"*) ;; *) PATH="%s:$PATH" ;; esac\n' "$ERRAND_BIN" "$ERRAND_BIN"
-      printf 'export PATH ERRAND_HOME="%s"\n' "$ERRAND_HOME"
+      printf '[ -r "%s" ] && . "%s"\n' "$ERRAND_PREFIX/env.sh" "$ERRAND_PREFIX/env.sh"
       printf '%s\n' "$MARK_END"
     } >> "$f"
   done
@@ -166,5 +196,9 @@ fi
 
 # 6. Prove it.
 "$ERRAND_HOME/bin/errand" doctor --brief || rc=1
-say "installed. Open a new shell, or run: export PATH=\"$ERRAND_BIN:\$PATH\""
+if [ "$rc" = 0 ]; then
+  say "installed. In this shell: . \"$ERRAND_PREFIX/env.sh\"  (new login shells load it from ~/.profile)"
+else
+  say "finished with errors; see the messages above. Re-running ./install is safe."
+fi
 exit $rc

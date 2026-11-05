@@ -62,14 +62,26 @@ log() { # url status capture
 warn() { printf 'spn2: %s\n' "$1" >&2; }
 
 # --- one authenticated capture -------------------------------------------------
+AUTHFILE=""
+ensure_authfile() {
+  [ -n "$AUTHFILE" ] && return 0
+  AUTHFILE=$(mktemp "${TMPDIR:-/tmp}/spn2-auth.XXXXXX") || exit 1
+  chmod 600 "$AUTHFILE"
+  printf 'Authorization: LOW %s\n' "$AUTH" > "$AUTHFILE"
+  trap 'rm -f "$AUTHFILE"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 capture_auth() {
+  ensure_authfile
   u="$1"
   data="url=$(enc "$u")"
   [ "$SEND_ALL" = 1 ] && [ -z "$(printf '%s' "$EXTRA" | grep -o 'capture_all')" ] && data="$data&capture_all=on"
   [ -n "$EXTRA" ] && data="$data&$EXTRA"
   resp=$(curl -sS --max-time 60 -X POST -H "Accept: application/json" \
-    -H "Authorization: LOW $AUTH" --data "$data" \
-    -w $'\n%{http_code}' "https://web.archive.org/save" 2>/dev/null)
+    -H "@$AUTHFILE" --data "$data" \
+    -w '\n%{http_code}' "https://web.archive.org/save" 2>/dev/null)
   code=$(printf '%s' "$resp" | tail -n1); body=$(printf '%s' "$resp" | sed '$d')
   case "$code" in
     200)
@@ -81,7 +93,7 @@ except Exception: print("")')
       while [ "$i" -lt "$MAXWAIT" ]; do
         sleep 5; i=$((i+5))
         st=$(curl -sS --max-time 30 -H "Accept: application/json" \
-          -H "Authorization: LOW $AUTH" \
+          -H "@$AUTHFILE" \
           "https://web.archive.org/save/status/$job" 2>/dev/null)
         [ -z "$st" ] && continue
         status=$(printf '%s' "$st" | python3 -c 'import json,sys

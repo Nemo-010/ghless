@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Mint an Arweave RSA-4096 JWK wallet with openssl and print its address.
 
-usage: arweave-wallet.py WALLET.json   (refuses to overwrite)
-Prints the wallet address (base64url sha256 of the modulus) on stdout.
+usage: arweave-wallet.py WALLET.json            mint a wallet (refuses to overwrite)
+       arweave-wallet.py --address WALLET.json  print the address of an existing wallet
+The address is the base64url sha256 of the modulus.
 """
 import base64
 import hashlib
@@ -40,7 +41,16 @@ def parse_text(text: str) -> dict:
     return out
 
 
+def address_of(jwk: dict) -> str:
+    raw = base64.urlsafe_b64decode(jwk["n"] + "=" * (-len(jwk["n"]) % 4))
+    return base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
+
+
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--address":
+        with open(sys.argv[2]) as fh:
+            print(address_of(json.load(fh)))
+        return 0
     if len(sys.argv) != 2:
         print(__doc__, file=sys.stderr)
         return 2

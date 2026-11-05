@@ -12,14 +12,16 @@ BINDIR="$ERRAND_PREFIX/bin"
 MARKDIR="$ERRAND_PREFIX/installed"
 mkdir -p "$BINDIR" "$MARKDIR"
 
-marked() { [ "$(cat "$MARKDIR/$1" 2>/dev/null)" = "$2" ]; }
-mark() { printf '%s' "$2" > "$MARKDIR/$1"; }
+# The marker records the pinned version and the sha256 of the installed binary,
+# so a replaced or corrupted binary is reinstalled instead of trusted.
+marked() { [ "$(cat "$MARKDIR/$1" 2>/dev/null)" = "$2 $(file_sha "$3")" ]; }
+mark() { printf '%s' "$2 $(file_sha "$3")" > "$MARKDIR/$1"; }
 
 work_tmp() { mktemp -d "${TMPDIR:-/tmp}/errand-tools.XXXXXX"; }
 
 install_cfrs() {
   want="$CFRS_VERSION $(pin_value CFRS_SHA)"
-  if [ -x "$BINDIR/cfrs" ] && marked cfrs "$want"; then say "cfrs $CFRS_VERSION already installed"; return 0; fi
+  if [ -x "$BINDIR/cfrs" ] && marked cfrs "$want" "$BINDIR/cfrs"; then say "cfrs $CFRS_VERSION already installed"; return 0; fi
   sha=$(pin_value CFRS_SHA)
   [ -n "$sha" ] || { warn "cfrs has no pin for $(arch)"; return 1; }
   asset="cfrs-$(arch)-unknown-linux-musl"
@@ -38,12 +40,12 @@ install_cfrs() {
     fi
   fi
   rm -rf "$t"
-  mark cfrs "$want"; say "cfrs $CFRS_VERSION installed"
+  mark cfrs "$want" "$BINDIR/cfrs"; say "cfrs $CFRS_VERSION installed"
 }
 
 install_radicle() {
   want="$RAD_VERSION $(pin_value RAD_SHA)"
-  if [ -x "$BINDIR/rad" ] && marked radicle "$want"; then say "radicle $RAD_VERSION already installed"; return 0; fi
+  if [ -x "$BINDIR/rad" ] && marked radicle "$want" "$BINDIR/rad"; then say "radicle $RAD_VERSION already installed"; return 0; fi
   sha=$(pin_value RAD_SHA)
   [ -n "$sha" ] || { warn "radicle has no pin for $(arch)"; return 1; }
   have xz || { warn "xz is required to unpack radicle (apt: xz-utils)"; return 1; }
@@ -51,23 +53,23 @@ install_radicle() {
   download_pinned "$RAD_BASE/radicle-$(arch)-unknown-linux-musl.tar.xz" "$sha" "$t/rad.tar.xz" || { rm -rf "$t"; return 1; }
   tar -xJf "$t/rad.tar.xz" -C "$t" --strip-components=1 || { rm -rf "$t"; return 1; }
   for b in rad radicle-node git-remote-rad; do install -m 0755 "$t/bin/$b" "$BINDIR/$b"; done
-  rm -rf "$t"; mark radicle "$want"; say "radicle $RAD_VERSION installed"
+  rm -rf "$t"; mark radicle "$want" "$BINDIR/rad"; say "radicle $RAD_VERSION installed"
 }
 
 install_nak() {
   want="$NAK_VERSION $(pin_value NAK_SHA)"
-  if [ -x "$BINDIR/nak" ] && marked nak "$want"; then say "nak $NAK_VERSION already installed"; return 0; fi
+  if [ -x "$BINDIR/nak" ] && marked nak "$want" "$BINDIR/nak"; then say "nak $NAK_VERSION already installed"; return 0; fi
   sha=$(pin_value NAK_SHA)
   [ -n "$sha" ] || { warn "nak has no pin for $(arch)"; return 1; }
   case "$(arch)" in x86_64) a=amd64 ;; aarch64) a=arm64 ;; *) a=$(arch) ;; esac
   t=$(work_tmp)
   download_pinned "$NAK_BASE/nak-$NAK_VERSION-linux-$a" "$sha" "$t/nak" || { rm -rf "$t"; return 1; }
-  install -m 0755 "$t/nak" "$BINDIR/nak"; rm -rf "$t"; mark nak "$want"; say "nak $NAK_VERSION installed"
+  install -m 0755 "$t/nak" "$BINDIR/nak"; rm -rf "$t"; mark nak "$want" "$BINDIR/nak"; say "nak $NAK_VERSION installed"
 }
 
 install_ngit() {
   want="$NGIT_VERSION $(pin_value NGIT_SHA)"
-  if [ -x "$BINDIR/ngit" ] && marked ngit "$want"; then say "ngit $NGIT_VERSION already installed"; return 0; fi
+  if [ -x "$BINDIR/ngit" ] && marked ngit "$want" "$BINDIR/ngit"; then say "ngit $NGIT_VERSION already installed"; return 0; fi
   sha=$(pin_value NGIT_SHA)
   [ -n "$sha" ] || { warn "ngit has no pin for $(arch)"; return 1; }
   case "$(arch)" in
@@ -83,14 +85,17 @@ install_ngit() {
     [ -n "$f" ] || { warn "$b not found in $asset"; rm -rf "$t"; return 1; }
     install -m 0755 "$f" "$BINDIR/$b"
   done
-  rm -rf "$t"; mark ngit "$want"; say "ngit $NGIT_VERSION installed"
+  rm -rf "$t"; mark ngit "$want" "$BINDIR/ngit"; say "ngit $NGIT_VERSION installed"
 }
 
 install_arweave() {
   want="$ARWEAVE_COMMIT"
-  if [ -x "$BINDIR/git-remote-arweave" ] && [ -x "$BINDIR/arweave-git" ] && marked arweave "$want"; then
+  if [ -x "$BINDIR/git-remote-arweave" ] && [ -x "$BINDIR/arweave-git" ] && marked arweave "$want" "$BINDIR/git-remote-arweave"; then
     say "git-remote-arweave $ARWEAVE_COMMIT already installed"; return 0
   fi
+  # Build state stays under $ERRAND_PREFIX/go. The Go toolchain and the module
+  # downloads are verified by Go itself (go.sum, checksum database); they are
+  # not pinned by errand.
   have go || { warn "go is required to build git-remote-arweave (apt: golang-go)"; return 1; }
   t=$(work_tmp)
   (
@@ -101,10 +106,10 @@ install_arweave() {
   (
     cd "$t/src" && git checkout -q FETCH_HEAD &&
     [ "$(git rev-parse HEAD)" = "$ARWEAVE_COMMIT" ] &&
-    CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
+    GOPATH="$ERRAND_PREFIX/go" GOCACHE="$ERRAND_PREFIX/go/cache" GOFLAGS=-mod=readonly CGO_ENABLED=0 go build -o "$t/out/" ./cmd/git-remote-arweave ./cmd/arweave-git
   ) || { warn "git-remote-arweave build failed"; rm -rf "$t"; return 1; }
   for b in git-remote-arweave arweave-git; do install -m 0755 "$t/out/$b" "$BINDIR/$b"; done
-  rm -rf "$t"; mark arweave "$want"; say "git-remote-arweave $ARWEAVE_COMMIT built"
+  rm -rf "$t"; mark arweave "$want" "$BINDIR/git-remote-arweave"; say "git-remote-arweave $ARWEAVE_COMMIT built"
 }
 
 status() {

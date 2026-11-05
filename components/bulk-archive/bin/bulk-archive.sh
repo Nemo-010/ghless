@@ -32,7 +32,9 @@ done
 LIST="$FILE"
 if [ "$FILE" = "-" ]; then
   LIST=$(mktemp "${TMPDIR:-/tmp}/bulk-list.XXXXXX") || exit 1
-  trap 'rm -f "$LIST"' EXIT INT TERM
+  trap 'rm -f "$LIST"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   cat > "$LIST"
 fi
 
