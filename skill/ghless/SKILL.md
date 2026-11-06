@@ -14,12 +14,26 @@ Run `ghless doctor` first. If `ghless` is not on PATH, run `./install` from the 
 | read a file or README | `ghless read owner/repo [path] [ref]` |
 | read issues, PRs, releases, search | `gh ...` (real gh if its token works, else read-only forge fallback, same output) |
 | clone and start work | `ghless fetch owner/repo` prints the checkout path. Work on branch `ghless/work`; commit there. |
+| user said "push" | `ghless push <dir>` (see the push rule below) |
 | publish your result | `ghless publish <dir> --name <name>` prints one line per lane. Exit 0 means at least one lane worked. |
 | public temporary page | `ghless serve <name>=<dir>` prints the clone URL (changes on restart). `--json` prints one JSON document instead. |
 | read a served page without HTML | `<url>/llms.txt`, `<url>/<name>/index.json`, `<url>/<name>/files.txt`, `<url>/<name>/raw/PATH` |
 | machine-readable ledger | `ghless status --json` |
 | keep a recoverable copy | `ghless archive <dir>` (add `--public-url URL` for the published URL) |
 | lost account or deleted repo | `ghre ledger ACCOUNT --out work/ACCOUNT`, then `ghre recover` |
+
+## Push rule
+
+Run `ghless push` only when the user asks to push. Without that request, never push, publish or open a pull request. Add `--private` only when the user asks for a private repository, and `--license ID` only when the user names a license. Defaults: public, 0BSD.
+
+| GitHub login | repository | what `ghless push` does |
+| --- | --- | --- |
+| works | public | adds a LICENSE if none, publishes to github, stops |
+| works | private | adds a LICENSE if none, publishes a private github repo, stops |
+| not working or suspended | private | zip of HEAD only; nothing leaves the machine |
+| not working or suspended | public | adds a LICENSE if none, then radicle, nostr, arweave, the archive job, a cfrs tunnel page and the zip |
+
+End your reply with the summary block `ghless push` prints (the lines from `----- push summary` to `result:`), copied exactly. A `result: FAILED` line is reported as failed, with its reason. An existing license file is never replaced.
 
 ## Rules
 

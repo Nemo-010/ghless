@@ -4,10 +4,11 @@
 case "${1:-}" in
   bash) cat <<'B'
 _ghless() {
-  local cur=${COMP_WORDS[COMP_CWORD]} cmds="doctor read fetch work publish archive serve pack status identity tools update-check completion help version"
+  local cur=${COMP_WORDS[COMP_CWORD]} cmds="doctor read fetch work publish push archive serve pack status identity tools update-check completion help version"
   if [ "$COMP_CWORD" -eq 1 ]; then COMPREPLY=($(compgen -W "$cmds" -- "$cur")); return; fi
   case "${COMP_WORDS[1]}" in
     publish) COMPREPLY=($(compgen -W "--name --lanes --desc --dry-run --no-verify github radicle nostr arweave" -- "$cur")) ;;
+    push) COMPREPLY=($(compgen -W "--name --private --license --holder --desc --no-net --dry-run" -- "$cur")) ;;
     archive) COMPREPLY=($(compgen -W "--name --out --no-net --deep --public-url --extra" -- "$cur")) ;;
     fetch|work) COMPREPLY=($(compgen -W "--ref --depth" -- "$cur")) ;;
     identity) COMPREPLY=($(compgen -W "show init export import" -- "$cur")) ;;
@@ -25,7 +26,7 @@ B
 #compdef ghless
 _ghless() {
   local -a cmds
-  cmds=(doctor read fetch work publish archive serve pack status identity tools update-check completion help version)
+  cmds=(doctor read fetch work publish push archive serve pack status identity tools update-check completion help version)
   if (( CURRENT == 2 )); then _describe 'command' cmds; return; fi
   case $words[2] in
     publish) _values 'option' --name --lanes --desc --dry-run --no-verify github radicle nostr arweave ;;

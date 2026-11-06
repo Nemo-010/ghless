@@ -26,6 +26,9 @@ Commands:
   ghless work SPEC [DIR]             same as fetch
   ghless publish [DIR] [--name N] [--lanes a,b] [--desc TEXT] [--dry-run] [--no-verify]
                                      push to github (if authenticated), radicle, nostr, arweave
+  ghless push [DIR] [--private] [--license ID] [--name N]
+                                     only when the user says "push": github if the login works
+                                     (public, 0BSD by default), else radicle/nostr/arweave + archive + tunnel + zip
   ghless archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--wait]
                                      [--public-url URL ...] [--extra PATH ...]
                                      bundles + patches + zip, SWH and Wayback requests
@@ -48,7 +51,7 @@ U
 
 cmd="${1:-help}"; [ $# -gt 0 ] && shift
 case "$cmd" in
-  doctor|read|fetch|publish|archive|serve|pack|identity|tools|update-check|status|completion|work)
+  doctor|read|fetch|publish|push|archive|serve|pack|identity|tools|update-check|status|completion|work)
     case "${1:-}" in
       -h|--help)
         f="$GHLESS_HOME/libexec/$cmd"; [ "$cmd" = work ] && f="$GHLESS_HOME/libexec/fetch"
@@ -58,7 +61,7 @@ esac
 case "$cmd" in
   help|-h|--help) usage ;;
   --version|version) cat "$GHLESS_HOME/VERSION" ;;
-  doctor|read|fetch|publish|archive|serve|pack|identity|tools|update-check|status|completion)
+  doctor|read|fetch|publish|push|archive|serve|pack|identity|tools|update-check|status|completion)
     exec "$GHLESS_HOME/libexec/$cmd" "$@" ;;
   work) exec "$GHLESS_HOME/libexec/fetch" "$@" ;;
   *) usage >&2; echo "ghless: unknown command: $cmd" >&2; exit 2 ;;

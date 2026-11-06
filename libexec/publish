@@ -1,6 +1,6 @@
 #!/bin/sh
 # publish: push a project to every lane that works, record where it went.
-#   ghless publish [DIR] [--dry-run] [--name NAME] [--lanes a,b] [--desc TEXT] [--no-verify]
+#   ghless publish [DIR] [--dry-run] [--name NAME] [--lanes a,b] [--desc TEXT] [--no-verify] [--private]
 # DIR defaults to the current directory. The pushed ref is DIR's HEAD, published
 # as `main` from a staging repo kept in $GHLESS_DATA/publish/NAME, so DIR's own
 # remotes and branches are never touched. Re-running updates the same repos; a
@@ -8,19 +8,22 @@
 # reported and skipped; the exit code is 0 when at least one lane succeeded.
 # Every pushed lane is verified (default): the host is asked what it serves and
 # the ledger records ok:verified, not just ok. --no-verify skips that wait.
+# --private makes the github repo private and publishes to github only: the
+# other lanes are public and permanent. It needs a working GitHub login.
 set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
 
-DIR=""; NAME=""; LANES=""; DESC=""; DRY=0; VERIFY=1
+DIR=""; NAME=""; LANES=""; DESC=""; DRY=0; VERIFY=1; PRIVATE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --no-verify) VERIFY=0 ;;
+    --private) PRIVATE=1 ;;
     --name|--lanes|--desc) [ $# -ge 2 ] || die "$1 needs a value"
       case "$1" in --name) NAME="$2" ;; --lanes) LANES="$2" ;; --desc) DESC="$2" ;; esac
       shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
   esac
@@ -32,6 +35,10 @@ git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1 || die "$DIR is not a git repo
 valid_name "$NAME" || NAME=$(printf '%s' "$NAME" | sed 's/[^A-Za-z0-9._-]/-/g; s/^[-.]*//')
 valid_name "$NAME" || die "no usable name; pass --name (letters, digits, . _ -, not starting with . or -)"
 [ -n "$DESC" ] || DESC="$NAME, published by ghless"
+if [ "$PRIVATE" = 1 ]; then
+  case "${LANES:-github}" in github) LANES=github ;; *) die "--private publishes to github only; the other lanes are public and permanent" ;; esac
+  github_authed || die "--private needs a working GitHub login (ghless doctor shows the account state)"
+fi
 if [ -z "$LANES" ]; then
   LANES="radicle,nostr,arweave"
   github_authed && LANES="github,$LANES"
@@ -107,8 +114,14 @@ github_head() { # print the HEAD github serves for the repo, empty when absent
 lane_github() {
   github_authed || { result github "-" "skipped: no working GitHub token"; return; }
   login=$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)
-  if ! GH_FORGE_MODE=real gh repo view "$login/$NAME" >/dev/null 2>&1; then
-    GH_FORGE_MODE=real gh repo create "$login/$NAME" --public --description "$DESC" >/dev/null 2>&1 ||
+  if GH_FORGE_MODE=real gh repo view "$login/$NAME" >/dev/null 2>&1; then
+    if [ "$PRIVATE" = 1 ] && [ "$(GH_FORGE_MODE=real gh repo view "$login/$NAME" --json visibility --jq .visibility 2>/dev/null)" = PUBLIC ]; then
+      result github "$login/$NAME" "failed: the repo already exists and is public; --private will not push to it"
+      return
+    fi
+  else
+    vis=--public; [ "$PRIVATE" = 1 ] && vis=--private
+    GH_FORGE_MODE=real gh repo create "$login/$NAME" "$vis" --description "$DESC" >/dev/null 2>&1 ||
       { result github "$login/$NAME" "failed: repo create"; return; }
   fi
   git -C "$STAGE" remote get-url github >/dev/null 2>&1 || git -C "$STAGE" remote add github "$GHLESS_GITHUB_URL/$login/$NAME.git"

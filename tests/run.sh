@@ -403,6 +403,105 @@ assert [(r["lane"], r["status"]) for r in d] == [("arweave", "ok"), ("nostr", "o
 }
 check "status --json lists the latest row per lane and project" status_json_case
 
+push_fixture() { # push_fixture DIR: a fresh repo without a license
+  rm -rf "$1"; mkdir -p "$1"; git -C "$1" init -q -b main
+  echo hi > "$1/a.txt"; git -C "$1" add -A; git -C "$1" -c user.name=t -c user.email=t@t commit -qm base
+  git -C "$1" config user.name t; git -C "$1" config user.email t@t
+}
+push_stubs() { # push_stubs UP: gh stub for a working (UP=1) or suspended (UP=0) account, plus a fake cfrs
+  mkdir -p "$T/pst" "$T/ghremote/me"
+  cat > "$T/pst/gh" <<STUB
+#!/bin/sh
+[ "$1" = 1 ] || exit 1
+case "\$*" in
+  "api user --jq .login") echo me; exit 0 ;;
+  "repo view me/"*"--json visibility"*) cat "$T/ghvis" 2>/dev/null || echo PUBLIC; exit 0 ;;
+  "repo view me/"*) [ -d "$T/ghremote/me/\${3#me/}.git" ] ; exit \$? ;;
+  "repo create me/"*) n="\${3#me/}"; echo "\$*" >> "$T/ghcreate.log"; git init -q --bare "$T/ghremote/me/\$n.git"; exit 0 ;;
+esac
+exit 1
+STUB
+  cat > "$T/pst/cfrs" <<'STUB'
+#!/bin/sh
+case "$1" in ps) exit 0 ;; serve) echo '{"url":"http://127.0.0.1:1"}' ;; esac
+STUB
+  chmod +x "$T/pst/gh" "$T/pst/cfrs"
+}
+run_push() { # run_push DATA UP ARGS...
+  _d="$1"; _up="$2"; shift 2; push_stubs "$_up"
+  PATH="$T/pst:$PATH" GHLESS_DATA="$_d" GHLESS_GITHUB_URL="file://$T/ghremote" GHLESS_VERIFY_SECS=0 "$ROOT/bin/ghless" push "$@"
+}
+
+push_github_public_case() {
+  push_fixture "$T/pp"; rm -f "$T/ghcreate.log" "$T/ghvis"; rm -rf "$T/ghremote/me"/*
+  out=$(run_push "$T/pd1" 1 "$T/pp" --name pp --no-net 2>&1) || { echo "$out"; return 1; }
+  grep -q -- '--public' "$T/ghcreate.log" || { echo "repo not created public"; return 1; }
+  head -n1 "$T/pp/LICENSE" | grep -q 'BSD Zero Clause License' || { echo "default license is not 0BSD"; return 1; }
+  [ "$(git --git-dir="$T/ghremote/me/pp.git" rev-parse main)" = "$(git -C "$T/pp" rev-parse HEAD)" ] || { echo "remote lacks the license commit"; return 1; }
+  printf '%s' "$out" | grep -q 'visibility:  public' && printf '%s' "$out" | grep -q 'result:      ok' || { echo "$out"; return 1; }
+  [ ! -d "$T/pd1/archive" ] && [ ! -d "$T/pd1/zips" ] && [ ! -d "$T/pd1/pub" ] || { echo "ran stages after github"; return 1; }
+}
+check "push, github works, public: 0BSD added, github only, summary printed" push_github_public_case
+
+push_github_private_case() {
+  push_fixture "$T/pq"; rm -f "$T/ghcreate.log"; rm -rf "$T/ghremote/me"/*; echo PRIVATE > "$T/ghvis"
+  out=$(run_push "$T/pd2" 1 "$T/pq" --name pq --private --license MIT --no-net 2>&1) || { echo "$out"; return 1; }
+  rm -f "$T/ghvis"
+  grep -q -- '--private' "$T/ghcreate.log" || { echo "repo not created private"; return 1; }
+  head -n1 "$T/pq/LICENSE" | grep -q 'MIT License' || { echo "--license ignored"; return 1; }
+  printf '%s' "$out" | grep -q 'github says: private' || { echo "$out"; return 1; }
+  [ ! -d "$T/pd2/archive" ] && [ ! -d "$T/pd2/zips" ]
+}
+check "push, github works, private: private repo, chosen license, stops there" push_github_private_case
+
+push_private_zip_case() {
+  push_fixture "$T/pr"; rm -f "$T/ghcreate.log"
+  out=$(run_push "$T/pd3" 0 "$T/pr" --name pr --private --no-net 2>&1) || { echo "$out"; return 1; }
+  z=$(ls "$T/pd3"/zips/pr-*.zip 2>/dev/null) && [ -n "$z" ] || { echo "no zip"; return 1; }
+  unzip -l "$z" | grep -q 'pr/a.txt' || { echo "zip lacks the project"; return 1; }
+  [ ! -e "$T/pr/LICENSE" ] && [ ! -e "$T/ghcreate.log" ] && [ ! -d "$T/pd3/archive" ] && [ ! -d "$T/pd3/publish" ] && [ ! -d "$T/pd3/pub" ] || { echo "something besides the zip ran"; return 1; }
+  printf '%s' "$out" | grep -q 'result:      ok'
+}
+check "push, no github login, private: zip only, nothing published" push_private_zip_case
+
+push_alt_hosts_case() {
+  push_fixture "$T/ps"
+  out=$(run_push "$T/pd4" 0 "$T/ps" --name ps --no-net 2>&1); rc=$?
+  for want in 'radicle:' 'nostr:' 'arweave:' 'archive:  ' 'page:' 'zip:' 'sha256:' 'license:     added LICENSE (0BSD)'; do
+    printf '%s' "$out" | grep -qF "$want" || { echo "summary lacks '$want'"; echo "$out"; return 1; }
+  done
+  [ -f "$T/ps/LICENSE" ] && ls "$T"/pd4/archive/ps-*.zip >/dev/null 2>&1 && ls "$T"/pd4/zips/ps-*.zip >/dev/null 2>&1 && [ -f "$T/pd4/pub/ps/index.html" ] || { echo "a stage did not run"; return 1; }
+  [ ! -d "$T/ghremote/me/ps.git" ] || { echo "pushed to github without a login"; return 1; }
+  # no lane tool exists in the test prefix, so the push must say it failed
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'result:      FAILED'
+}
+check "push, no github login, public: alt hosts, archive, tunnel page, zip, failure reported" push_alt_hosts_case
+
+push_keeps_license_case() {
+  push_fixture "$T/pt"; echo "custom terms" > "$T/pt/COPYING"; git -C "$T/pt" add -A; git -C "$T/pt" commit -qm c
+  rm -rf "$T/ghremote/me"/*
+  run_push "$T/pd5" 1 "$T/pt" --name pt --no-net >/dev/null 2>&1 || return 1
+  [ ! -e "$T/pt/LICENSE" ] && [ "$(cat "$T/pt/COPYING")" = "custom terms" ]
+}
+check "push never replaces an existing license file" push_keeps_license_case
+
+push_dry_case() {
+  push_fixture "$T/pu"
+  out=$(run_push "$T/pd6" 0 "$T/pu" --dry-run 2>&1) || return 1
+  printf '%s' "$out" | grep -q 'archive job; cfrs tunnel page; zip' && [ ! -e "$T/pu/LICENSE" ] && [ ! -d "$T/pd6/zips" ]
+}
+check "push --dry-run states the plan and changes nothing" push_dry_case
+
+publish_private_guard_case() {
+  push_fixture "$T/pv"; push_stubs 0
+  PATH="$T/pst:$PATH" GHLESS_DATA="$T/pd7" "$ROOT/bin/ghless" publish "$T/pv" --private >/dev/null 2>&1 && return 1
+  push_stubs 1
+  PATH="$T/pst:$PATH" GHLESS_DATA="$T/pd7" "$ROOT/bin/ghless" publish "$T/pv" --private --lanes github,nostr >/dev/null 2>&1 && return 1
+  return 0
+}
+refuse_case() { publish_private_guard_case; }
+check "publish --private refuses without a login and refuses public lanes" refuse_case
+
 name_continuity_case() {
   C="$T/cont"; git clone -q "$FX" "$C"
   "$ROOT/bin/ghless" publish "$C" --name contname --lanes none >/dev/null 2>&1
