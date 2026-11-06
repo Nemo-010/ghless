@@ -12,11 +12,19 @@ usage() {
   cat <<'U'
 ghless: read, work on, publish and archive code with no GitHub account.
 
+Quickstart:
+  ghless doctor                     check this host, install anything missing
+  ghless read owner/repo            print a README without cloning
+  ghless fetch owner/repo           clone + work branch, prints the path
+  ghless publish <dir>              push to every lane that works, verified
+  ghless status --check             what every host serves right now
+
+Commands:
   ghless doctor [--brief]            what works on this host (tools, egress, lanes)
   ghless read SPEC [PATH] [REF]      print one file or the README of a public repo
   ghless fetch SPEC [DIR]            clone any public repo, make a work branch
   ghless work SPEC [DIR]             same as fetch
-  ghless publish [DIR] [--name N] [--lanes a,b] [--desc TEXT] [--dry-run]
+  ghless publish [DIR] [--name N] [--lanes a,b] [--desc TEXT] [--dry-run] [--no-verify]
                                      push to github (if authenticated), radicle, nostr, arweave
   ghless archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--wait]
                                      [--public-url URL ...] [--extra PATH ...]

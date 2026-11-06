@@ -12,6 +12,18 @@
 
 Radicle success means a public seed serves the repo. A push that stays local is reported as failed.
 
+## Verification
+
+After each lane pushes, `publish` asks the host what it serves now (GitHub API,
+Radicle seed API, the GRASP server's git refs, the Arweave gateway transaction)
+and compares it with the pushed commit. A match records `ok:verified` in the
+ledger and the output; a timeout records plain `ok` (the push was accepted, the
+index may lag). `--no-verify` skips the wait, `GHLESS_VERIFY_SECS` (default
+240) bounds it. Arweave verification is transaction liveness: the manifest and
+pack transactions of every part must answer HTTP 200 on arweave.net. The
+ledger row for arweave carries every transaction id, so `ghless status
+--check` can re-check them later without the local state.
+
 ## Arweave size limit
 
 The free Turbo tier took a 0.5 KiB and a 0.75 KiB push and refused a 164 KiB one with HTTP 402 (all observed). When a push gets

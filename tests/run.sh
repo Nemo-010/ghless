@@ -388,6 +388,29 @@ spn_case() {
 }
 check "spn2 keeps the access key off curl's argv" spn_case
 
+rebind_case() {
+  R="$T/rebind"; git clone -q "$FX" "$R"
+  # bind the name through publish itself (valid staging repo), then make its
+  # source point at a directory that no longer exists
+  "$ROOT/bin/ghless" publish "$R" --name rb --lanes none >/dev/null 2>&1
+  printf '%s' "$T/vanished" > "$GHLESS_DATA/publish/rb/.git/ghless-source"
+  out=$("$ROOT/bin/ghless" publish "$R" --name rb --lanes none 2>&1)
+  printf '%s' "$out" | grep -q 'no longer exists; rebinding' || { echo "no rebind message"; return 1; }
+  [ "$(cat "$GHLESS_DATA/publish/rb/.git/ghless-source")" = "$R" ]
+}
+check "publish rebinds a name whose source directory vanished" rebind_case
+
+noverify_case() {
+  "$ROOT/bin/ghless" publish "$FX" --dry-run --no-verify >/dev/null 2>&1 || return 1
+  "$ROOT/libexec/publish" --help | grep -q -- '--no-verify'
+}
+check "publish takes --no-verify and documents it" noverify_case
+
+quickstart_case() {
+  "$ROOT/bin/ghless" help | grep -q 'Quickstart:'
+}
+check "bare help leads with the quickstart" quickstart_case
+
 if [ "$NET" = 1 ]; then
   check "read README (live)" sh -c "'$ROOT/bin/ghless' read octocat/Hello-World | head -c 20 | grep -q ."
   check "fetch live" sh -c "'$ROOT/bin/ghless' fetch octocat/Hello-World '$T/hw' --depth 1 >/dev/null 2>&1 && git -C '$T/hw' rev-parse ghless/source-base"

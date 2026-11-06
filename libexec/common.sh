@@ -14,16 +14,51 @@ GHLESS_DATA="${GHLESS_DATA:-$GHLESS_PREFIX/data}"
 GHLESS_BIN="${GHLESS_BIN:-$HOME/.local/bin}"
 GHLESS_WORK="${GHLESS_WORK:-$GHLESS_DATA/work}"
 export GHLESS_HOME GHLESS_PREFIX GHLESS_DATA GHLESS_BIN GHLESS_WORK
-PATH="$GHLESS_PREFIX/bin:$PATH"
-export PATH
-
-# shellcheck disable=SC1091
-. "$GHLESS_HOME/pins/pins.env"
 
 say() { printf 'ghless: %s\n' "$*" >&2; }
 warn() { printf 'ghless: warning: %s\n' "$*" >&2; }
 die() { printf 'ghless: error: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+PATH="$GHLESS_PREFIX/bin:$PATH"
+
+# A mount with the noexec flag (some hosts mount the home or data volume that
+# way) makes every installed tool fail to exec with EACCES. When that happens
+# the binaries are copied once to an exec-space directory under TMPDIR and that
+# directory is put first on PATH, so the same commands work unchanged.
+GHLESS_EXECBIN="${GHLESS_EXECBIN:-${TMPDIR:-/tmp}/ghless-exec-bin-$(id -u)}"
+export GHLESS_EXECBIN
+execbin_ok() { # execbin_ok FILE: true when FILE can be exec'd (not blocked by noexec)
+  [ -x "$1" ] || return 1
+  python3 - "$1" <<'PY' 2>/dev/null || return 1
+import subprocess, sys
+try:
+    subprocess.run([sys.argv[1], "--version"], capture_output=True, timeout=10)
+except PermissionError:
+    sys.exit(1)
+PY
+}
+for _probe in "$GHLESS_PREFIX/bin/rad" "$GHLESS_PREFIX/bin/cfrs"; do
+  [ -x "$_probe" ] || continue
+  execbin_ok "$_probe" && break
+  mkdir -p "$GHLESS_EXECBIN"
+  _fixed=0
+  for _b in "$GHLESS_PREFIX"/bin/*; do
+    [ -x "$_b" ] || continue
+    execbin_ok "$_b" && continue
+    _d="$GHLESS_EXECBIN/$(basename "$_b")"
+    cp -f "$_b" "$_d" && chmod 0755 "$_d" && execbin_ok "$_d" && _fixed=1
+  done
+  if [ "$_fixed" = 1 ]; then
+    PATH="$GHLESS_EXECBIN:$PATH"
+    say "tools under $GHLESS_PREFIX/bin cannot run (noexec mount); using copies in $GHLESS_EXECBIN"
+  fi
+  break
+done
+export PATH
+
+# shellcheck disable=SC1091
+. "$GHLESS_HOME/pins/pins.env"
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -174,7 +209,12 @@ free_port() {
 warp_up() {
   have cfrs || return 1
   mkdir -p "$CFRS_STATE_DIR"
-  [ -S "$CFRS_STATE_DIR/run/warp.sock" ] && cfrs ps 2>/dev/null | grep -q '^warp .*ready' && return 0
+  # a socket left over from a killed agent makes the -S test pass forever; drop
+  # it when no ready warp answers on it
+  if [ -S "$CFRS_STATE_DIR/run/warp.sock" ]; then
+    if cfrs ps 2>/dev/null | grep -q '^warp .*ready'; then return 0; fi
+    rm -f "$CFRS_STATE_DIR/run/warp.sock"
+  fi
   cfrs agent up --warp >/dev/null 2>&1
 }
 

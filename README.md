@@ -22,7 +22,7 @@ once, and the rest needs nothing else.
 | --- | --- | --- |
 | read any public GitHub asset | `ghless read owner/repo [path]`, `gh ...` | with a path: raw.githubusercontent.com, the fetch broker, then the forge API. Without a path: the six usual README names on raw.githubusercontent.com, then the forge API, then api.github.com. `gh` is the real gh when its token works, else a read-only forge proxy with the same argv and output shapes (gh-forge). |
 | copy and work on it | `ghless fetch owner/repo [dir]` | direct git, then git through the broker, then the source tarball. Tags the upstream commit `ghless/source-base`, opens branch `ghless/work`. |
-| publish | `ghless publish [dir]` | github if a real token works, plus radicle, nostr (ngit/GRASP), arweave. Reports each lane. |
+| publish | `ghless publish [dir]` | github if a real token works, plus radicle, nostr (ngit/GRASP), arweave. Reports each lane, then verifies it: the host is asked what it serves and the ledger records `ok:verified`. Failed lanes get a retry hint; re-running retries them. |
 | temporary public web | `ghless serve` | static git index plus dumb-HTTP clone over `cfrs serve` (Cloudflare quick tunnel). |
 | archive | `ghless archive [dir] [--wait]` | git bundles (upstream base, your changes, all), patch series, tarball, SHA-256 manifest, zip; Software Heritage and Wayback requests; ghre snapshot of upstream issues and PRs. |
 | recover a lost account | `ghre ledger`, `ghre recover`, `ghre snapshot` | the ghre tool, unchanged. See `components/ghre/PLAYBOOK.md`. |
@@ -56,6 +56,14 @@ State: `$GHLESS_DATA` (default `~/.local/share/ghless/data`) holds identities
 (`radicle/`, `nostr.key`, `arweave-wallet.json`, all private), `work/`,
 `publish/` (staging repos), `archive/`, `pub/` and `published.tsv`, the ledger
 of everything published.
+
+## Hosts that mount a volume noexec
+
+If `$GHLESS_PREFIX/bin` cannot be executed (every tool exits with EACCES), any
+ghless command copies the tools once to `$GHLESS_EXECBIN` (default
+`${TMPDIR:-/tmp}/ghless-exec-bin-<uid>`) and puts that directory first on
+PATH. Nothing else changes; `ghless doctor` shows BLOCKED for a tool it cannot
+run before that first copy happens.
 
 ## Hosts whose only egress is an HTTPS proxy
 

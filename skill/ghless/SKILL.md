@@ -27,6 +27,7 @@ Run `ghless doctor` first. If `ghless` is not on PATH, run `./install` from the 
 - Keys live in `$GHLESS_DATA` (default `~/.local/share/ghless/data`). Never print or commit them. `ghless identity` shows public ids only.
 - Do not push to GitHub unless the operator asks. `ghless publish` pushes to github only when a real token works.
 - A lane result of `failed` is a result, not an error to hide. Report it with its reason.
+- `ok:verified` means the host was asked and serves the pushed commit; plain `ok` means the push was accepted but the host's index had not caught up within the verify window. Re-running `ghless publish` retries failed lanes.
 - Long commands (`archive --deep`, `ghre snapshot --save`) run detached in the background: `detach_run` in `libexec/common.sh` (setsid when available, else nohup), output to a log file.
 
 ## Where things are

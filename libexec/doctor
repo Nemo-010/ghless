@@ -19,7 +19,14 @@ for t in jq unzip zip tar xz openssl ssh go; do
   if have "$t"; then row "$t" ok ""; else row "$t" missing "optional; ./install adds it"; fi
 done
 for t in cfrs rad nak ngit git-remote-arweave; do
-  if have "$t"; then row "$t" ok "$(command -v "$t")"; else row "$t" missing "run: ghless tools install"; fi
+  if have "$t"; then
+    if [ -x "$(command -v "$t")" ] && ! "$t" --version >/dev/null 2>&1; then
+      case $? in
+        126) row "$t" BLOCKED "$(command -v "$t") cannot exec (noexec mount); re-run any ghless command to auto-copy it to an exec dir" ;;
+        *) row "$t" ok "$(command -v "$t")" ;;
+      esac
+    else row "$t" ok "$(command -v "$t")"; fi
+  else row "$t" missing "run: ghless tools install"; fi
 done
 [ "$BRIEF" = 1 ] && exit $rc
 
@@ -52,4 +59,15 @@ fi
 if have cfrs; then
   if [ -n "${HTTPS_PROXY:-}${https_proxy:-}${ALL_PROXY:-}" ]; then row "egress" proxy "HTTPS proxy set; raw ports other than 443 are probably blocked"; else row "egress" direct ""; fi
 fi
+
+# Egress rules the lanes follow.
+row "data dir" "$GHLESS_DATA" "$(du -sh "$GHLESS_DATA" 2>/dev/null | cut -f1 || echo empty)"
+
+# Lane readiness: what publish would run right now.
+lanes=""
+github_authed && lanes="$lanes github"
+have rad && lanes="$lanes radicle"
+have ngit && lanes="$lanes nostr"
+have git-remote-arweave && lanes="$lanes arweave"
+[ -n "$lanes" ] && row "publish lanes" "ready:$lanes" "" || row "publish lanes" none "run: ghless tools install"
 exit $rc

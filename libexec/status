@@ -10,9 +10,15 @@ L="$GHLESS_DATA/published.tsv"
 # latest row per lane+project
 awk -F'\t' '{k=$2 "\t" $3; row[k]=$0} END {for (k in row) print row[k]}' "$L" | sort -t'	' -k3,3 -k2,2 |
 while IFS='	' read -r ts lane proj url st; do
-  printf '%-20s %-9s %-8s %s\n' "$ts" "$lane" "$st" "$proj  $url"
+  printf '%-20s %-9s %-14s %s\n' "$ts" "$lane" "$st" "$proj  $url"
   [ "$CHECK" = 1 ] || continue
   case "$lane" in
+    github)
+      [ "$st" = ok -o "$st" = "ok:verified" ] || continue
+      repo=$(printf '%s' "$url" | sed -n 's#https\?://github.com/##p')
+      [ -n "$repo" ] || continue
+      sha=$(GH_FORGE_MODE=real gh api "repos/$repo/commits/main" --jq .sha 2>/dev/null)
+      printf '    %-22s head %s\n' "github.com" "${sha:-absent}" ;;
     radicle)
       [ "$st" = ok ] || continue
       rid=$(printf '%s' "$url" | grep -o 'rad:[A-Za-z0-9]*')
@@ -29,8 +35,17 @@ while IFS='	' read -r ts lane proj url st; do
       printf '    %-22s head %s\n' "$2 (GRASP)" "${head:-absent}" ;;
     arweave)
       for u in $(printf '%s' "$url" | grep -o 'arweave://[A-Za-z0-9_/.-]*'); do
-        head=$(timeout 60 git ls-remote "$u" HEAD refs/heads/main 2>/dev/null | head -n1 | cut -c1-40)
-        printf '    %-22s head %s\n' "${u##*/}" "${head:-absent or not settled yet}"
+        pn=${u##*/}
+        addr=$(printf '%s' "$u" | sed -n 's#arweave://\([^/]*\)/.*#\1#p')
+        mtx=$(cat "$GHLESS_DATA/arweave-parts/$proj/$pn/.git/arweave/remotes/$addr/$pn/genesis-manifest" 2>/dev/null)
+        [ -z "$mtx" ] && mtx=$(cat "$GHLESS_DATA/publish/$proj/.git/arweave/remotes/$addr/$proj/genesis-manifest" 2>/dev/null)
+        if [ -n "$mtx" ]; then
+          c=$(curl -s -o /dev/null -w '%{http_code}' -L -m 60 "https://arweave.net/$mtx")
+          printf '    %-22s manifest %s answers %s\n' "$pn" "$mtx" "$c"
+        else
+          head=$(timeout 60 git ls-remote "$u" HEAD refs/heads/main 2>/dev/null | head -n1 | cut -c1-40)
+          printf '    %-22s head %s\n' "$pn" "${head:-absent or not settled yet}"
+        fi
       done ;;
     tunnel)
       c=$(curl -s -m 15 -o /dev/null -w '%{http_code}' "$url/index.html"); printf '    index answers %s\n' "$c" ;;
