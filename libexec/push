@@ -56,7 +56,7 @@ fi
 say "github=$GH visibility=$VIS: $PLAN"
 
 LEDGER="$GHLESS_DATA/published.tsv"
-BEFORE=$(wc -l < "$LEDGER" 2>/dev/null || echo 0)
+BEFORE=0; [ -f "$LEDGER" ] && BEFORE=$(wc -l < "$LEDGER")
 LOGDIR="$GHLESS_DATA/push-logs"; mkdir -p "$LOGDIR"
 LOG="$LOGDIR/$NAME-$(date -u +%Y%m%dT%H%M%SZ).log"
 : > "$LOG"
