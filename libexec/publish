@@ -245,7 +245,8 @@ lane_arweave() {
   out=$(ARWEAVE_WALLET="$wallet" git -C "$STAGE" push arweave main 2>&1)
   if [ $? -eq 0 ]; then
     rdir="$STAGE/.git/arweave/remotes/$addr/$NAME"
-    mtx=$(cat "$rdir/genesis-manifest" 2>/dev/null)
+    mtx=$(jq -r '.manifest_tx // empty' "$rdir/pending.json" 2>/dev/null)
+    [ -n "$mtx" ] || mtx=$(cat "$rdir/genesis-manifest" 2>/dev/null)
     ptx=$(jq -r '.pack_tx // empty' "$rdir/pending.json" 2>/dev/null)
     if arweave_verify "$mtx" "$ptx"; then result arweave "$url (tx:$mtx)" "ok:verified"
     else result arweave "$url (tx:$mtx)" ok; fi
@@ -266,7 +267,8 @@ lane_arweave() {
     git -C "$parts/$pn" remote get-url arweave >/dev/null 2>&1 && git -C "$parts/$pn" remote set-url arweave "$purl" || git -C "$parts/$pn" remote add arweave "$purl"
     pout=$(ARWEAVE_WALLET="$wallet" git -C "$parts/$pn" push arweave main 2>&1) || { bad=$((bad + 1)); warn "arweave part $pn: $(printf '%s' "$pout" | tail -n1 | cut -c1-160)"; continue; }
     prdir="$parts/$pn/.git/arweave/remotes/$addr/$pn"
-    pmtx=$(cat "$prdir/genesis-manifest" 2>/dev/null)
+    pmtx=$(jq -r '.manifest_tx // empty' "$prdir/pending.json" 2>/dev/null)
+    [ -n "$pmtx" ] || pmtx=$(cat "$prdir/genesis-manifest" 2>/dev/null)
     pptx=$(jq -r '.pack_tx // empty' "$prdir/pending.json" 2>/dev/null)
     [ -n "$pmtx" ] && arweave_verify "$pmtx" "$pptx" && verified=$((verified + 1))
     urls="$urls arweave://$addr/$pn(tx:$pmtx)"

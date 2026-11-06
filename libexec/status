@@ -37,8 +37,10 @@ while IFS='	' read -r ts lane proj url st; do
       for u in $(printf '%s' "$url" | grep -o 'arweave://[A-Za-z0-9_/.-]*'); do
         pn=${u##*/}
         addr=$(printf '%s' "$u" | sed -n 's#arweave://\([^/]*\)/.*#\1#p')
-        mtx=$(cat "$GHLESS_DATA/arweave-parts/$proj/$pn/.git/arweave/remotes/$addr/$pn/genesis-manifest" 2>/dev/null)
-        [ -z "$mtx" ] && mtx=$(cat "$GHLESS_DATA/publish/$proj/.git/arweave/remotes/$addr/$proj/genesis-manifest" 2>/dev/null)
+        pdir="$GHLESS_DATA/arweave-parts/$proj/$pn/.git/arweave/remotes/$addr/$pn"
+        [ -d "$pdir" ] || pdir="$GHLESS_DATA/publish/$proj/.git/arweave/remotes/$addr/$proj"
+        mtx=$(jq -r '.manifest_tx // empty' "$pdir/pending.json" 2>/dev/null)
+        [ -n "$mtx" ] || mtx=$(cat "$pdir/genesis-manifest" 2>/dev/null)
         if [ -n "$mtx" ]; then
           c=$(curl -s -o /dev/null -w '%{http_code}' -L -m 60 "https://arweave.net/$mtx")
           printf '    %-22s manifest %s answers %s\n' "$pn" "$mtx" "$c"
