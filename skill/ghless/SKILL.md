@@ -28,7 +28,7 @@ Run `ghless push` only when the user asks to push. Without that request, never p
 
 | GitHub login | repository | what `ghless push` does |
 | --- | --- | --- |
-| works | public | adds a LICENSE if none, publishes to github, stops |
+| works | public | adds a LICENSE if none, publishes to github, mirrors to radicle, nostr and arweave, runs the archive job, zips; no cfrs page |
 | works | private | adds a LICENSE if none, publishes a private github repo, stops |
 | not working or suspended | private | zip of HEAD only; nothing leaves the machine |
 | not working or suspended | public | adds a LICENSE if none, then radicle, nostr, arweave, the archive job, a cfrs tunnel page and the zip |

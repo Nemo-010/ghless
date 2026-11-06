@@ -434,14 +434,19 @@ run_push() { # run_push DATA UP ARGS...
 
 push_github_public_case() {
   push_fixture "$T/pp"; rm -f "$T/ghcreate.log" "$T/ghvis"; rm -rf "$T/ghremote/me"/*
-  out=$(run_push "$T/pd1" 1 "$T/pp" --name pp --no-net 2>&1) || { echo "$out"; return 1; }
+  out=$(run_push "$T/pd1" 1 "$T/pp" --name pp --no-net 2>&1); rc=$?
   grep -q -- '--public' "$T/ghcreate.log" || { echo "repo not created public"; return 1; }
   head -n1 "$T/pp/LICENSE" | grep -q 'BSD Zero Clause License' || { echo "default license is not 0BSD"; return 1; }
   [ "$(git --git-dir="$T/ghremote/me/pp.git" rev-parse main)" = "$(git -C "$T/pp" rev-parse HEAD)" ] || { echo "remote lacks the license commit"; return 1; }
-  printf '%s' "$out" | grep -q 'visibility:  public' && printf '%s' "$out" | grep -q 'result:      ok' || { echo "$out"; return 1; }
-  [ ! -d "$T/pd1/archive" ] && [ ! -d "$T/pd1/zips" ] && [ ! -d "$T/pd1/pub" ] || { echo "ran stages after github"; return 1; }
+  for want in 'visibility:  public' 'github:      ok' 'github says: public' 'radicle:' 'nostr:' 'arweave:' 'archive:  ' 'zip:' 'sha256:'; do
+    printf '%s' "$out" | grep -qF "$want" || { echo "summary lacks '$want'"; echo "$out"; return 1; }
+  done
+  ls "$T"/pd1/archive/pp-*.zip >/dev/null 2>&1 && ls "$T"/pd1/zips/pp-*.zip >/dev/null 2>&1 || { echo "archive or zip missing"; return 1; }
+  [ ! -d "$T/pd1/pub" ] && ! printf '%s' "$out" | grep -q '^page:' || { echo "published a cfrs page"; return 1; }
+  # the test prefix has no radicle, nostr or arweave tool, so the mirror must be reported as failed
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'result:      FAILED: mirror'
 }
-check "push, github works, public: 0BSD added, github only, summary printed" push_github_public_case
+check "push, github works, public: 0BSD, github, mirror, archive, zip, no cfrs page" push_github_public_case
 
 push_github_private_case() {
   push_fixture "$T/pq"; rm -f "$T/ghcreate.log"; rm -rf "$T/ghremote/me"/*; echo PRIVATE > "$T/ghvis"
@@ -480,7 +485,7 @@ check "push, no github login, public: alt hosts, archive, tunnel page, zip, fail
 push_keeps_license_case() {
   push_fixture "$T/pt"; echo "custom terms" > "$T/pt/COPYING"; git -C "$T/pt" add -A; git -C "$T/pt" commit -qm c
   rm -rf "$T/ghremote/me"/*
-  run_push "$T/pd5" 1 "$T/pt" --name pt --no-net >/dev/null 2>&1 || return 1
+  run_push "$T/pd5" 1 "$T/pt" --name pt --no-net >/dev/null 2>&1
   [ ! -e "$T/pt/LICENSE" ] && [ "$(cat "$T/pt/COPYING")" = "custom terms" ]
 }
 check "push never replaces an existing license file" push_keeps_license_case

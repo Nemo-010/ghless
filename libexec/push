@@ -2,11 +2,11 @@
 # push: the whole "push it" routine, decided by the state of the GitHub account.
 #   ghless push [DIR] [--name N] [--private] [--license ID] [--holder TEXT] [--desc TEXT] [--no-net] [--dry-run]
 # Run it only when the user asked to push. What happens:
-#   github login works, public (default)  license, then github only
-#   github login works, --private         license, then github only (private repo), stop
+#   github login works, public (default)  license, github, mirror to radicle + nostr +
+#                                         arweave, archive job, zip (no cfrs page)
+#   github login works, --private         license, private github repo, stop
 #   no working login,   --private         zip of HEAD only, nothing leaves this machine
-#   no working login,   public            license, radicle + nostr + arweave, archive job,
-#                                         cfrs tunnel page, zip
+#   no working login,   public            license, mirror, archive job, cfrs tunnel page, zip
 # A repository with no LICENSE file gets one (default 0BSD; also MIT, ISC or any
 # key api.github.com/licenses knows) committed on the current branch. An existing
 # license file is never replaced. The last output lines are a fixed summary.
@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
     --name|--license|--holder|--desc) [ $# -ge 2 ] || die "$1 needs a value"
       case "$1" in --name) NAME="$2" ;; --license) LICENSE_ID="$2" ;; --holder) HOLDER="$2" ;; --desc) DESC="$2" ;; esac
       shift ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option: $1 (try --help)" ;;
     *) DIR="$1" ;;
   esac
@@ -41,7 +41,7 @@ case "$LICENSE_KEY" in *[!a-z0-9.+-]*|"") die "bad license id: $LICENSE_ID" ;; e
 
 if github_authed; then GH=active; else GH=inactive; fi
 if [ "$GH" = active ]; then
-  if [ "$PRIVATE" = 1 ]; then PLAN="license; github private; stop"; else PLAN="license; github public; stop"; fi
+  if [ "$PRIVATE" = 1 ]; then PLAN="license; github private; stop"; else PLAN="license; github public; mirror to radicle, nostr, arweave; archive job; zip (no cfrs page)"; fi
 elif [ "$PRIVATE" = 1 ]; then
   PLAN="zip only (no working GitHub login, private)"
 else
@@ -109,19 +109,27 @@ make_zip() {
     ledger_add zip "$NAME" "$ZIP" ok
 }
 
+mirror_and_archive() { # radicle, nostr, arweave, then the archive job
+  step "mirror to radicle, nostr, arweave" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes radicle,nostr,arweave ${DESC:+--desc "$DESC"}
+  if [ "$NET" = 1 ]; then step "archive job" "$GHLESS_HOME/libexec/archive" "$DIR" --name "$NAME"
+  else step "archive (offline part only)" "$GHLESS_HOME/libexec/archive" "$DIR" --name "$NAME" --no-net; fi
+}
+
 ZIP=""
 case "$GH:$PRIVATE" in
-  active:*)
+  active:1)
     ensure_license
-    if [ "$PRIVATE" = 1 ]; then step "publish to github (private)" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes github --private ${DESC:+--desc "$DESC"}
-    else step "publish to github (public)" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes github ${DESC:+--desc "$DESC"}; fi ;;
+    step "publish to github (private)" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes github --private ${DESC:+--desc "$DESC"} ;;
+  active:0)
+    ensure_license
+    step "publish to github (public)" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes github ${DESC:+--desc "$DESC"}
+    mirror_and_archive
+    step "zip of HEAD" make_zip ;;
   inactive:1)
     step "zip of HEAD" make_zip ;;
   inactive:0)
     ensure_license
-    step "publish to radicle, nostr, arweave" "$GHLESS_HOME/libexec/publish" "$DIR" --name "$NAME" --lanes radicle,nostr,arweave ${DESC:+--desc "$DESC"}
-    if [ "$NET" = 1 ]; then step "archive job" "$GHLESS_HOME/libexec/archive" "$DIR" --name "$NAME"
-    else step "archive (offline part only)" "$GHLESS_HOME/libexec/archive" "$DIR" --name "$NAME" --no-net; fi
+    mirror_and_archive
     step "page over a cfrs tunnel" "$GHLESS_HOME/libexec/serve" "$NAME=$DIR"
     step "zip of HEAD" make_zip ;;
 esac
@@ -138,24 +146,25 @@ HEADSHA=$(git -C "$DIR" rev-parse HEAD)
 BRANCH=$(git -C "$DIR" symbolic-ref -q --short HEAD || echo detached)
 echo "----- push summary: $NAME -----"
 echo "commit:      $HEADSHA ($BRANCH)"
-echo "github:      $GH"
+echo "login:       $GH"
 echo "visibility:  $VIS"
 [ -z "$LICENSE_NOTE" ] || echo "license:     $LICENSE_NOTE"
 echo "plan:        $PLAN"
+show_github() {
+  show "github" github
+  if [ -n "$(row github)" ]; then
+    login=$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)
+    actual=$(GH_FORGE_MODE=real gh repo view "$login/$NAME" --json visibility --jq .visibility 2>/dev/null | tr 'A-Z' 'a-z')
+    echo "github says: ${actual:-unknown} visibility"
+  fi
+}
+show_zip() { show "zip" zip; [ -z "$ZIP" ] || echo "sha256:      $(cut -d' ' -f1 "$ZIP.sha256" 2>/dev/null)"; }
+show_mirror() { show "radicle" radicle; show "nostr" nostr; show "arweave" arweave; show "archive" archive; show "swh" swh; show "wayback" wayback; show "snapshot" ghre-snap; }
 case "$GH:$PRIVATE" in
-  active:*)
-    show "github" github
-    if [ -n "$(row github)" ]; then
-      login=$(GH_FORGE_MODE=real gh api user --jq .login 2>/dev/null)
-      actual=$(GH_FORGE_MODE=real gh repo view "$login/$NAME" --json visibility --jq .visibility 2>/dev/null | tr 'A-Z' 'a-z')
-      echo "github says: ${actual:-unknown} visibility"
-    fi ;;
-  inactive:1) show "zip" zip; [ -z "$ZIP" ] || echo "sha256:      $(cut -d' ' -f1 "$ZIP.sha256" 2>/dev/null)" ;;
-  inactive:0)
-    show "radicle" radicle; show "nostr" nostr; show "arweave" arweave
-    show "archive" archive; show "swh" swh; show "wayback" wayback; show "snapshot" ghre-snap
-    show "page" tunnel; show "zip" zip
-    [ -z "$ZIP" ] || echo "sha256:      $(cut -d' ' -f1 "$ZIP.sha256" 2>/dev/null)" ;;
+  active:1) show_github ;;
+  active:0) show_github; show_mirror; show_zip ;;
+  inactive:1) show_zip ;;
+  inactive:0) show_mirror; show "page" tunnel; show_zip ;;
 esac
 echo "log:         $LOG"
 if [ -n "$FAILED" ]; then echo "result:      FAILED:$FAILED"; exit 1; fi
