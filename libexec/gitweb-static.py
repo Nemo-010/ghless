@@ -156,12 +156,23 @@ def build_repo(out, name, src, ledger_rows=(), downloads=()):
     else:
         git("clone", "-q", "--bare", src, bare)
         git("remote", "remove", "origin", cwd=bare, check=False)
-    head = git("symbolic-ref", "-q", "HEAD", cwd=bare, check=False).decode().strip()
-    if not head or not git("rev-parse", "-q", "--verify", head, cwd=bare, check=False):
+    # bare HEAD follows the source's checked-out branch, so a clone of the
+    # served repo gets what the user is working on, not a stale default branch.
+    # HEAD is written as a raw sha: dumb-HTTP clones resolve a symref HEAD only
+    # when the target loose ref file exists, and branch names with slashes
+    # confuse some clients; a sha works everywhere.
+    src_head = git("symbolic-ref", "-q", "HEAD", cwd=src, check=False).decode().strip()
+    head_sha = ""
+    if src_head.startswith("refs/heads/"):
+        head_sha = git("rev-parse", "-q", "--verify", src_head, cwd=bare, check=False).decode().strip()
+    if not head_sha:
         branches = git("for-each-ref", "--format=%(refname)", "refs/heads", cwd=bare).decode().split()
         if not branches:
             raise SystemExit(f"{name}: no branches")
         git("symbolic-ref", "HEAD", branches[0], cwd=bare)
+        head_sha = git("rev-parse", "-q", "--verify", "HEAD", cwd=bare).decode().strip()
+    with open(os.path.join(bare, "HEAD"), "w", encoding="ascii") as fh:
+        fh.write(head_sha + "\n")
     git("update-server-info", cwd=bare)
 
     site = os.path.join(out, name)

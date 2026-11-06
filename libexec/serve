@@ -55,9 +55,15 @@ done
 # shellcheck disable=SC2086
 python3 "$GHLESS_HOME/libexec/gitweb-static.py" --ledger "$GHLESS_DATA/published.tsv" $DLARGS "$PUB" "$@" || warn "some repositories were not published (see above)"
 
-doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
-url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
-[ -n "$url" ] || url=$(printf '%s' "$doc" | grep -oE 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' | head -n1)
+# A ready instance with this name is reused (the URL stays the same); only a
+# fresh start prints a new URL.
+if cfrs ps 2>/dev/null | grep -q "^$INSTANCE .*ready"; then
+  url=$(cfrs ps 2>/dev/null | awk -v i="$INSTANCE" '$1==i {print $NF; exit}')
+else
+  doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
+  url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
+  [ -n "$url" ] || url=$(printf '%s' "$doc" | grep -oE 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' | head -n1)
+fi
 [ -n "$url" ] || die "no URL in cfrs output: $doc"
 code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url/index.html")
 say "serving $PUB (index answers $code)"
