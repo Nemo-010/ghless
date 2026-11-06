@@ -22,6 +22,7 @@ two, while GitHub itself allows 60 requests an hour unauthenticated.
 
 from __future__ import annotations
 
+import threading
 import json
 import os
 import time
@@ -98,17 +99,19 @@ class Budget:
     used: int = 0
     log_path: Path | None = None
     _rows: list[str] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def available(self) -> bool:
         return self.used < self.limit
 
     def spend(self, status: str, lane: str, url: str) -> None:
-        self.used += 1
-        row = f"{status}\t{lane}\t{url}"
-        self._rows.append(row)
-        if self.log_path is not None:
-            with self.log_path.open("a", encoding="utf-8") as fh:
-                fh.write(row + "\n")
+        with self._lock:
+            self.used += 1
+            row = f"{status}\t{lane}\t{url}"
+            self._rows.append(row)
+            if self.log_path is not None:
+                with self.log_path.open("a", encoding="utf-8") as fh:
+                    fh.write(row + "\n")
 
 
 class Client:

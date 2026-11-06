@@ -1,5 +1,8 @@
 # Where this project is published (first name: errand-home)
 
+Historical run log: the addresses below were produced by the archived pre-release tree on
+2026-11-05/06 and refer to that tree, not to a fresh install of this release.
+
 The project was renamed to ghless after these addresses were created. The addresses below keep the old name `errand-home`
 and hold the pre-rename tree; run `ghless publish` to add the renamed tree (its names will be `ghless`).
 

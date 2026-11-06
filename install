@@ -42,7 +42,9 @@ done
 
 MARK_BEGIN="# >>> ghless >>>"
 MARK_END="# <<< ghless <<<"
-SKILL_DIRS="$HOME/.claude/skills $HOME/.agents/skills"
+# SKILL_DIRS is newline-separated: HOME may contain spaces.
+SKILL_DIRS="$HOME/.claude/skills
+$HOME/.agents/skills"
 LINKS="ghless ghre ghre-hunt ghre-pack-patches ghre-export-records bulk-archive spn2 arquivo-apn megalodon ghostarchive archive-today urlscan socks-relay"
 
 link_target() {
@@ -94,7 +96,7 @@ strip_block() { # strip_block FILE: removes only a well-formed block (BEGIN, the
 }
 
 if [ "$UNINSTALL" = 1 ]; then
-  for n in $LINKS gh; do
+  printf '%s\n' $LINKS gh | while IFS= read -r n; do
     t=$(link_target "$n"); cur=$(readlink "$GHLESS_BIN/$n" 2>/dev/null) || continue
     # ours: the current checkout, or any other checkout (moved or deleted) with the same inner path
     case "$cur" in "$t"|*"${t#"$GHLESS_HOME"}") rm -f "$GHLESS_BIN/$n" && say "removed $GHLESS_BIN/$n" ;; esac
@@ -103,14 +105,14 @@ if [ "$UNINSTALL" = 1 ]; then
     cur=$(readlink "$GHLESS_BIN/$b" 2>/dev/null) || continue
     case "$cur" in "$GHLESS_PREFIX/bin/$b"|*/ghless/bin/$b) rm -f "$GHLESS_BIN/$b" && say "removed $GHLESS_BIN/$b" ;; esac
   done
-  for f in $(profile_files); do strip_block "$f"; done
+  profile_files | while IFS= read -r f; do strip_block "$f"; done
   rm -f "$GHLESS_PREFIX/env.sh"
-  for f in $(profile_files); do [ -f "$f" ] && [ ! -s "$f" ] && rm -f "$f"; done
+  profile_files | while IFS= read -r f; do [ -f "$f" ] && [ ! -s "$f" ] && rm -f "$f"; done
   rmdir "$GHLESS_BIN" 2>/dev/null
-  for d in $SKILL_DIRS; do
+  printf '%s\n' "$SKILL_DIRS" | while IFS= read -r d; do
     [ -L "$d/ghless" ] && rm -f "$d/ghless" && say "removed $d/ghless"
   done
-  for d in $SKILL_DIRS; do rmdir "$d" "$(dirname "$d")" 2>/dev/null; done
+  printf '%s\n' "$SKILL_DIRS" | while IFS= read -r d; do rmdir "$d" "$(dirname "$d")" 2>/dev/null; done
   say "uninstalled; data kept in $GHLESS_DATA, binaries kept in $GHLESS_PREFIX/bin"
   exit 0
 fi
@@ -175,7 +177,7 @@ for n in errand $LINKS gh cfrs pod-netns rad radicle-node git-remote-rad nak ngi
     */errand-home/*|"$OLD_PREFIX"/*) rm -f "$GHLESS_BIN/$n"; say "migrated: removed old link $GHLESS_BIN/$n" ;;
   esac
 done
-for f in $(profile_files); do
+profile_files | while IFS= read -r f; do
   if grep -qxF "$OLD_BEGIN" "$f" 2>/dev/null && grep -qxF "$OLD_END" "$f"; then
     MARK_BEGIN_SAVE="$MARK_BEGIN"; MARK_END_SAVE="$MARK_END"
     MARK_BEGIN="$OLD_BEGIN"; MARK_END="$OLD_END"; strip_block "$f"
@@ -183,7 +185,7 @@ for f in $(profile_files); do
     say "migrated: removed the old errand-home block from $f"
   fi
 done
-for d in $SKILL_DIRS; do
+printf '%s\n' "$SKILL_DIRS" | while IFS= read -r d; do
   case "$(readlink "$d/errand-home" 2>/dev/null)" in */errand-home/*) rm -f "$d/errand-home"; say "migrated: removed $d/errand-home" ;; esac
 done
 if [ -d "$OLD_PREFIX/data" ] && [ ! -e "$GHLESS_DATA/nostr.key" ] && [ "$OLD_PREFIX" != "$GHLESS_PREFIX" ]; then
@@ -210,11 +212,13 @@ put_link() { # put_link NAME TARGET: only ever replaces links that are ours or d
   fi
   ln -sfn "$2" "$l"
 }
-for n in $LINKS; do
+while IFS= read -r n || [ -n "$n" ]; do
   t=$(link_target "$n")
   [ -e "$t" ] || { warn "missing $t"; rc=1; continue; }
   put_link "$n" "$t" || rc=1
-done
+done <<EOF
+$(printf '%s\n' $LINKS)
+EOF
 if [ "$GHSHIM" = 1 ]; then
   put_link gh "$(link_target gh)" || warn "gh wrapper not installed: your existing gh stays first"
 fi
@@ -233,7 +237,7 @@ case ":\$PATH:" in ":$GHLESS_BIN:"*) ;; *) PATH="$GHLESS_BIN:\$PATH" ;; esac
 export GHLESS_HOME GHLESS_PREFIX GHLESS_DATA PATH
 ENV
 if [ "$EDITPATH" = 1 ]; then
-  for f in $(profile_files); do
+  while IFS= read -r f || [ -n "$f" ]; do
     strip_block "$f" || { rc=1; continue; }
     [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
     {
@@ -241,12 +245,14 @@ if [ "$EDITPATH" = 1 ]; then
       printf '[ -r "%s" ] && . "%s"\n' "$GHLESS_PREFIX/env.sh" "$GHLESS_PREFIX/env.sh"
       printf '%s\n' "$MARK_END"
     } >> "$f"
-  done
+  done <<EOF
+$(profile_files)
+EOF
 fi
 
 # 5. Skill registration (symlink, so the skill follows the checkout).
 if [ "$SKILL" = 1 ]; then
-  for d in $SKILL_DIRS; do
+  printf '%s\n' "$SKILL_DIRS" | while IFS= read -r d; do
     mkdir -p "$d" && ln -sfn "$GHLESS_HOME/skill/ghless" "$d/ghless"
   done
 fi

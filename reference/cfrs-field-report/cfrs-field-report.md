@@ -6,7 +6,7 @@ Workload: a multi-hour research task that had to (a) install three Rust/Go toolc
 against ~10 remote hosts, (d) publish and later re-verify artifacts, all from a container
 whose only egress is a hardened HTTP CONNECT proxy on port 443 (domain allowlist).
 
-Raw evidence: `/workspace/cfrs-field-evidence-seccomp-rst.log` (verbatim node log + error lines).
+Raw evidence: `reference/cfrs-field-report/cfrs-field-evidence-seccomp-rst.log` (verbatim node log + error lines).
 
 Binary: cfrs 0.3.0-beta.12 (3b6e173da1e1e37243efb7b7a290d8972a48a205), downloaded from the
 v0.3.0-beta.12 release and signature-verified by the binary itself. Environment: Debian 13
@@ -151,5 +151,5 @@ Publishing and verifying artifacts of a survey of authless git hosting: radicle
 protocol e2e, nostr/GRASP e2e, Arweave push/clone e2e, repo.or.cz anonymous SSH push,
 plus ~15 HTTPS-only checks against forges, relays, and APIs. Every protocol that cfrs
 WARP carried worked; the only failures were protocols blocked by the broker (UDP-only
-DHT) or by the pod backend (item 2). Final report: `/workspace/anonymous-git-hosting/`
-(zip: `/workspace/anonymous-git-hosting.zip`).
+DHT) or by the pod backend (item 2). Final report: `reference/anonymous-git-hosting/` (the zip it came
+from is not part of the release tree).

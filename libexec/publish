@@ -114,6 +114,7 @@ lane_radicle() {
   [ -n "$seeds" ] || { result radicle "-" "failed: no seed reachable"; return; }
   arr=$(printf '%s\n' $seeds | jq -R . | jq -s .)
   rad node stop >/dev/null 2>&1
+  [ -f "$RAD_HOME/config.json" ] || printf '{}\n' > "$RAD_HOME/config.json"
   tmp="$RAD_HOME/config.json.tmp"
   jq --argjson s "$arr" '.preferredSeeds = $s | .node.connect = $s | .node.peers = {"type":"static"}' \
     "$RAD_HOME/config.json" > "$tmp" && mv "$tmp" "$RAD_HOME/config.json"

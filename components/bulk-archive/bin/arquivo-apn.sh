@@ -66,12 +66,12 @@ submit() {
 
 if [ -z "${FILE:-}" ]; then
   [ $# -lt 1 ] && { echo "need a URL or -f file" >&2; exit 2; }
-  [ "$CHECK" = 1 ] && check "$1" || submit "$1"
+  if [ "$CHECK" = 1 ]; then check "$1"; else submit "$1"; fi
   exit 0
 fi
 [ "$FILE" = "-" ] && LIST=/tmp/apn-list.$$ && cat > "$LIST" || LIST="$FILE"
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
-  [ "$CHECK" = 1 ] && check "$u" || submit "$u"
+  if [ "$CHECK" = 1 ]; then check "$u"; else submit "$u"; fi
   sleep 3
 done
 [ "${FILE:-}" = "-" ] && rm -f /tmp/apn-list.$$

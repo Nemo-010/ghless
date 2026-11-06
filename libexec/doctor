@@ -34,7 +34,6 @@ probe 3 "$BROKER/https://github.com/git/git"
 probe 4 https://forge.web.pkgforge.dev/llms.txt
 probe 5 https://archive.softwareheritage.org/api/1/
 probe 6 https://web.archive.org/
-( github_authed && echo yes > "$P/auth" ) &
 wait
 row "github.com direct" "$(cat "$P/1")" ""
 row "api.github.com direct" "$(cat "$P/2")" ""

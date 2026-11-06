@@ -13,8 +13,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --ref) [ $# -ge 2 ] || die "--ref needs a value"; shift; REF="$1" ;;
     --depth) [ $# -ge 2 ] || die "--depth needs a value"; shift; DEPTH="$1" ;;
-    -*) die "unknown option: $1 (try --help)" ;;
     -h|--help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) die "unknown option: $1 (try --help)" ;;
     *) if [ -z "$SPEC" ]; then SPEC="$1"; elif [ -z "$DIR" ]; then DIR="$1"; else die "too many arguments"; fi ;;
   esac
   shift

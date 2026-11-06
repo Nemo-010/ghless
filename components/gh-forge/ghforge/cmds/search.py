@@ -287,7 +287,10 @@ _REPO_SORTS = {"forks": "forks", "stars": "stars", "updated": "updated"}
 
 
 def _issues_query(opts, words, kind):
-    parts = ["type:%s" % kind]
+    if kind == "pr" or not opts.get("include-prs"):
+        parts = ["type:%s" % kind]
+    else:
+        parts = []
     if opts.get("repo"):
         parts.append("repo:%s" % opts["repo"])
     for owner in common.parse_csv(opts.get("owner")):

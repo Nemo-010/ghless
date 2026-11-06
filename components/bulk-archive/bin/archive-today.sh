@@ -50,6 +50,8 @@ log() {
   else printf '%s\t%s\t%s\n' "$1" "$2" "$3"; fi
 }
 
+warn() { printf 'archive-today: %s\n' "$1" >&2; }
+
 lookup() {
   u="$1"
   body=$(curl -sS -A "$UA" --max-time 60 -o /tmp/at.$$ -w '%{http_code}' \
@@ -89,12 +91,12 @@ submit() {
 
 if [ -z "${FILE:-}" ]; then
   [ $# -lt 1 ] && { echo "need a URL or -f file" >&2; exit 2; }
-  [ "$LOOKUP" = 1 ] && lookup "$1" || submit "$1"
+  if [ "$LOOKUP" = 1 ]; then lookup "$1"; else submit "$1"; fi
   exit 0
 fi
 [ "$FILE" = "-" ] && LIST=/tmp/at-list.$$ && cat > "$LIST" || LIST="$FILE"
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
-  [ "$LOOKUP" = 1 ] && lookup "$u" || submit "$u"
+  if [ "$LOOKUP" = 1 ]; then lookup "$u"; else submit "$u"; fi
   sleep "$SLEEP"
 done
 [ "${FILE:-}" = "-" ] && rm -f /tmp/at-list.$$

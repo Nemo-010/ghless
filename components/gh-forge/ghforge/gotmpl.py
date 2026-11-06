@@ -864,6 +864,9 @@ def _f_timeago(state, args):
         yield "%d hours ago" % (seconds // 3600)
         return
     days = seconds // 86400
+    if days < 30:
+        yield "1 day ago" if days == 1 else "%d days ago" % days
+        return
     if days < 365:
         yield "%d months ago" % (days // 30)
         return

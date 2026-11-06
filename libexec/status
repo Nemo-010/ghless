@@ -14,6 +14,7 @@ while IFS='	' read -r ts lane proj url st; do
   [ "$CHECK" = 1 ] || continue
   case "$lane" in
     radicle)
+      [ "$st" = ok ] || continue
       rid=$(printf '%s' "$url" | grep -o 'rad:[A-Za-z0-9]*')
       [ -n "$rid" ] || continue
       for h in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do

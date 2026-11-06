@@ -154,7 +154,8 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         print("expected owner/repo", file=sys.stderr)
         return 2
     outdir = Path(args.out)
-    client = _client(args, outdir if outdir.parent != Path("") else Path("."))
+    outdir.mkdir(parents=True, exist_ok=True)
+    client = _client(args, outdir)
 
     if args.verify:
         problems = verify(outdir)

@@ -1,6 +1,10 @@
 #!/bin/sh
 # ghless: the single entry point of ghless.
 set -u
+if ! readlink -f "$0" >/dev/null 2>&1; then
+  echo "ghless: error: ghless requires Linux (GNU or busybox coreutils): readlink -f is not available" >&2
+  exit 1
+fi
 GHLESS_HOME=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 export GHLESS_HOME
 
@@ -12,9 +16,11 @@ ghless: read, work on, publish and archive code with no GitHub account.
   ghless read SPEC [PATH] [REF]      print one file or the README of a public repo
   ghless fetch SPEC [DIR]            clone any public repo, make a work branch
   ghless work SPEC [DIR]             same as fetch
-  ghless publish [DIR] [--name N] [--lanes a,b] [--dry-run]
+  ghless publish [DIR] [--name N] [--lanes a,b] [--desc TEXT] [--dry-run]
                                      push to github (if authenticated), radicle, nostr, arweave
-  ghless archive [DIR] [--no-net]    bundles + patches + zip, SWH and Wayback requests
+  ghless archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--wait]
+                                     [--public-url URL ...] [--extra PATH ...]
+                                     bundles + patches + zip, SWH and Wayback requests
   ghless serve [NAME=PATH ...]       git web index over a temporary cfrs tunnel (--status, --stop)
   ghless pack [OUT.zip]              zip ghless itself
   ghless status [--check]            what was published where (--check asks the hosts)

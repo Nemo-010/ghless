@@ -28,19 +28,24 @@ have() { command -v "$1" >/dev/null 2>&1; }
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 arch() {
-  case "${GHLESS_ARCH:-$(uname -m)}" in
+  _a="${GHLESS_ARCH:-$(uname -m)}"
+  case "$_a" in
+    *[!A-Za-z0-9_-]*|"") die "refused GHLESS_ARCH '$_a': only letters, digits, _ - are allowed" ;;
+  esac
+  case "$_a" in
     x86_64|amd64) echo x86_64 ;;
     aarch64|arm64) echo aarch64 ;;
     armv7l|armv7) echo armv7 ;;
     i686|i386) echo i686 ;;
     riscv64) echo riscv64 ;;
-    *) echo "${GHLESS_ARCH:-$(uname -m)}" ;;
+    *) echo "$_a" ;;
   esac
 }
 
 # pin_value PREFIX -> value of PREFIX_<arch> from pins.env (empty when unpinned).
 pin_value() {
-  eval "printf '%s' \"\${${1}_$(arch):-}\""
+  _a=$(arch) || return 1
+  eval "printf '%s' \"\${${1}_$_a:-}\""
 }
 
 # Direct URL first, then the same URL through the fetch broker.

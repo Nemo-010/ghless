@@ -126,8 +126,8 @@ capture_anon() {
   hdr=$(curl -sS --max-time 90 -o "$BODYTMP" -D - \
     "https://web.archive.org/save/$u" 2>/dev/null | tr -d '\r')
   loc=$(printf '%s' "$hdr" | grep -i '^location:' | head -n1 | cut -d' ' -f2-)
-  ts=$(printf '%s' "$hdr" | grep -i '^x-ts:' | head -n1 | cut -d' ' -f2)
-  case "$ts" in
+  code=$(printf '%s' "$hdr" | head -n1 | awk '{print $2}')
+  case "$code" in
     302)
       [ -n "$loc" ] && log "$u" "ok(existing-or-new)" "$loc" \
                   || log "$u" "ok" "" ;;
@@ -141,7 +141,7 @@ capture_anon() {
       else
         log "$u" "already-captured" "$(printf '%s' "$hdr" | grep -i '^x-location:' | head -n1 | cut -d' ' -f2-)"
       fi ;;
-    *) log "$u" "http-$ts" "" ;;
+    *) log "$u" "http-$code" "" ;;
   esac
   rm -f "$BODYTMP"
 }
@@ -160,6 +160,6 @@ if [ "$FILE" = "-" ]; then
   cat > "$LIST"
 fi
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
-  [ -n "$AUTH" ] && capture_auth "$u" || capture_anon "$u"
+  if [ -n "$AUTH" ]; then capture_auth "$u"; else capture_anon "$u"; fi
   sleep "$SLEEP"
 done

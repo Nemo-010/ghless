@@ -19,15 +19,14 @@ not by the account, so those are counted and reported as excluded rather than
 silently dropped.
 
 Nothing here knows about any particular record. Layouts are discovered:
-`events/<owner>__<repo>/` from the events lane, `refs-lane/patches/` from the
-git lane, and any directory whose name looks like a repository holding markup
+`events/<owner>__<repo>/` from the events lane, `refs/<owner>__<repo>/patches/`
+from the git lane, and any directory whose name looks like a repository holding markup
 documents from the archive lane.
 """
 
 from __future__ import annotations
 
 import argparse
-import gzip
 import re
 import sys
 import zipfile
@@ -93,21 +92,20 @@ def collect_patches(src: Path, account: str) -> tuple[dict[tuple[str, str], list
     """Commit patches from the git lane, keeping only the account's own."""
     out: dict[tuple[str, str], list[Path]] = {}
     kept = excluded = 0
-    base = src / "refs-lane" / "patches"
-    if not base.is_dir():
-        return out, kept, excluded
-    for path in sorted(base.glob("*.patch.gz")):
-        stem = path.name.split("__", 1)[0]
-        owner, _, repo = stem.partition("_")
+    for base in sorted((src / "refs").glob("*__*")) if (src / "refs").is_dir() else []:
+        owner, _, repo = base.name.partition("__")
         if not owner or not repo:
             continue
-        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
-            head = fh.read(4096)
-        if not author_matches(head, account):
-            excluded += 1
+        patch_dir = base / "patches"
+        if not patch_dir.is_dir():
             continue
-        out.setdefault((owner, repo), []).append(path)
-        kept += 1
+        for path in sorted(patch_dir.glob("*.patch")):
+            head = path.read_text(encoding="utf-8", errors="replace")[:4096]
+            if not author_matches(head, account):
+                excluded += 1
+                continue
+            out.setdefault((owner, repo), []).append(path)
+            kept += 1
     return out, kept, excluded
 
 
@@ -153,8 +151,7 @@ def commit_index(patches: list[Path]) -> str:
     """An index built by reading each patch, so it cannot disagree with them."""
     rows = []
     for path in sorted(patches):
-        with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
-            head = fh.read(8192)
+        head = path.read_text(encoding="utf-8", errors="replace")[:8192]
         sha = re.search(r"^commit ([0-9a-f]{40})", head, re.M)
         author = re.search(r"^Author:\s+(.*)$", head, re.M)
         date = re.search(r"^Date:\s+(.*)$", head, re.M)

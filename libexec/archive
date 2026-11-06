@@ -14,13 +14,14 @@ GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
 . "$GHLESS_HOME/libexec/spec.sh"
 
-DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; WAIT=0; PUBURLS=""; EXTRAS=""
+DIR=""; NAME=""; OUT=""; NET=1; DEEP=0; WAIT=0; PUBURLS=""; EXTRA_STAGE=""
+trap 'rm -rf "${EXTRA_STAGE:-}"' EXIT
 while [ $# -gt 0 ]; do
   case "$1" in
     --name|--out|--public-url|--extra) [ $# -ge 2 ] || die "$1 needs a value"
       case "$1" in --name) NAME="$2" ;; --out) OUT="$(abspath "$2")" ;; --public-url) PUBURLS="$PUBURLS $2" ;;
-        --extra) [ -e "$2" ] || die "no such file: $2"; EXTRAS="$EXTRAS
-$(abspath "$2")" ;; esac
+        --extra) [ -e "$2" ] || die "no such file: $2"; [ -n "$EXTRA_STAGE" ] || EXTRA_STAGE=$(mktemp -d "${TMPDIR:-/tmp}/ghless-extra.XXXXXX")
+          cp -a "$(abspath "$2")" "$EXTRA_STAGE/" ;; esac
       shift ;;
     --no-net) NET=0 ;;
     --deep) DEEP=1 ;;
@@ -88,9 +89,9 @@ If uncommitted.patch or untracked.tar.gz exist, the checkout had changes that we
 
 Verify first: sha256sum -c MANIFEST.sha256
 R
-if [ -n "$EXTRAS" ]; then
+if [ -n "$EXTRA_STAGE" ]; then
   mkdir -p "$OUT/extra"
-  printf '%s\n' "$EXTRAS" | while IFS= read -r x; do [ -n "$x" ] && cp -a "$x" "$OUT/extra/"; done
+  cp -a "$EXTRA_STAGE"/. "$OUT/extra/"
 fi
 tsv="$OUT/NETWORK.tsv"; : > "$tsv"
 net() { ledger_add "$1" "$NAME" "$2" "$3"; printf '%s\t%s\t%s\t%s\n' "$(now_utc)" "$1" "$2" "$3" >> "$tsv"; printf '%-10s %-6s %s\n' "$1" "$3" "$2"; }
@@ -103,8 +104,8 @@ if [ "$NET" = 1 ]; then
     code=$(curl -s -m 60 -X POST -o "$OUT/swh-$(printf '%s' "$clean" | tr -c 'A-Za-z0-9' '_').json" -w '%{http_code}' \
       "https://archive.softwareheritage.org/api/1/origin/save/git/url/$clean/")
     case "$code" in 200|201|202) net swh "$clean" "ok:$code" ;; *) net swh "$clean" "failed:$code" ;; esac
-    line=$(sh "$GHLESS_HOME/components/bulk-archive/bin/spn2.sh" "$clean" 2>/dev/null | head -n1)
-    net wayback "$clean" "$(printf '%s' "$line" | cut -f2):$(printf '%s' "$line" | cut -f3)"
+    line=$(sh "$GHLESS_HOME/components/bulk-archive/bin/spn2.sh" "$clean" 2>/dev/null | awk -F'\t' -v u="$clean" '$1==u {print $2 ":" $3; exit}')
+    net wayback "$clean" "$line"
   done
   S_GITHUB=0
   [ -n "$UPSTREAM" ] && parse_spec "$UPSTREAM"

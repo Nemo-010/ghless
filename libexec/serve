@@ -63,4 +63,4 @@ code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url/index.html")
 say "serving $PUB (index answers $code)"
 for n in $CLONES; do [ -d "$PUB/$n.git" ] && echo "git clone $url/$n.git"; done
 echo "$url"
-ledger_add tunnel "$CLONES" "$url" "$code"
+for n in $CLONES; do ledger_add tunnel "$n" "$url" "$code"; done

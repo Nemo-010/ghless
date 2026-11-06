@@ -45,15 +45,19 @@ log() {
   else printf '%s\t%s\t%s\n' "$1" "$2" "$3"; fi
 }
 
-authargs=""
-[ -n "${GHOST_CF_COOKIE:-}" ] && authargs="-H Cookie: cf_clearance=$GHOST_CF_COOKIE"
+cookiefile=""
+if [ -n "${GHOST_CF_COOKIE:-}" ]; then
+  cookiefile=$(mktemp "${TMPDIR:-/tmp}/ga-cookie.XXXXXX") || exit 1
+  chmod 600 "$cookiefile"
+  printf 'Cookie: cf_clearance=%s\n' "$GHOST_CF_COOKIE" > "$cookiefile"
+fi
 
 check() {
   u="$1"
   today=$(date +%Y%m%d)
   # follow the redirect: an existing capture lands on /archive/<short-id>
   # regardless of the date asked for; 404 only when nothing exists at all
-  final=$(curl -sS -A "$UA" $authargs --max-time 60 -o /tmp/ga.$$ -L --max-redirs 3 \
+  final=$(curl -sS -A "$UA" ${cookiefile:+-H "@$cookiefile"} --max-time 60 -o /tmp/ga.$$ -L --max-redirs 3 \
     -w '%{url_effective} %{http_code}' "https://ghostarchive.org/archive/$today/$u" 2>/dev/null)
   code=${final##* }
   final=${final% *}
@@ -65,7 +69,7 @@ check() {
 
 submit() {
   u="$1"
-  body=$(curl -sS -A "$UA" $authargs --max-time 120 -X POST \
+  body=$(curl -sS -A "$UA" ${cookiefile:+-H "@$cookiefile"} --max-time 120 -X POST \
     --data-urlencode "archive=$u" -o /tmp/ga.$$ -w '%{http_code}' \
     "https://ghostarchive.org/archive2" 2>/dev/null)
   case "$body" in
@@ -86,12 +90,12 @@ submit() {
 
 if [ -z "${FILE:-}" ]; then
   [ $# -lt 1 ] && { echo "need a URL or -f file" >&2; exit 2; }
-  [ "$CHECK" = 1 ] && check "$1" || submit "$1"
+  if [ "$CHECK" = 1 ]; then check "$1"; else submit "$1"; fi
   exit 0
 fi
 [ "$FILE" = "-" ] && LIST=/tmp/ga-list.$$ && cat > "$LIST" || LIST="$FILE"
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
-  [ "$CHECK" = 1 ] && check "$u" || submit "$u"
+  if [ "$CHECK" = 1 ]; then check "$u"; else submit "$u"; fi
   sleep 3
 done
 [ "${FILE:-}" = "-" ] && rm -f /tmp/ga-list.$$

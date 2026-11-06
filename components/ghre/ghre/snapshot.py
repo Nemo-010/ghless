@@ -399,7 +399,7 @@ class SaveQueue:
                 fh.write(json.dumps(self.state, indent=2))
             os.replace(tmp, self.path)
         except BaseException:
-            pathlib.Path(tmp).unlink(missing_ok=True)
+            Path(tmp).unlink(missing_ok=True)
             raise
 
     def submitted(self) -> list[str]:

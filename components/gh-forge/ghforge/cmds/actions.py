@@ -324,9 +324,11 @@ def _run_mark(item):
 
 
 def _run_of_job(ctx, owner, name, job_id):
-    doc = ctx.backend.data("repos/%s/%s/actions/runs" % (owner, name),
-                           [("per_page", "1")])
-    return None
+    doc = ctx.backend.data("repos/%s/%s/actions/jobs/%s" % (owner, name, job_id))
+    run_id = (doc or {}).get("run_id")
+    if not run_id:
+        raise UsageError("job %s not found" % job_id)
+    return run_id
 
 
 def _print_log(ctx, owner, name, run_id, failed=False):
@@ -365,13 +367,6 @@ def workflow_list(argv, ctx):
     doc = ctx.backend.data("repos/%s/%s/actions/workflows" % (owner, name),
                            [("per_page", "100")])
     items = (doc or {}).get("workflows") or []
-    if opts.get("all"):
-        try:
-            disabled = ctx.backend.data(
-                "repos/%s/%s/actions/workflows" % (owner, name),
-                [("per_page", "100")])
-        except GhError:
-            disabled = None
     items = items[:limit]
     shaped = [shape.workflow(item) for item in items]
 

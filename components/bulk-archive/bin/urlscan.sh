@@ -54,9 +54,14 @@ except Exception as e: print("search-failed")' \
 submit() {
   u="$1"
   if [ -z "$KEY" ]; then log "$u" "no-key" "set URLSCAN_API_KEY (free account)"; return; fi
-  resp=$(curl -sS --max-time 60 -X POST -H "api-key: $KEY" -H "content-type: application/json" \
-    -d "{\"url\":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$u"),\"visibility\":\"$VIS\"}" \
+  keyfile=$(mktemp "${TMPDIR:-/tmp}/us-key.XXXXXX") || exit 1
+  chmod 600 "$keyfile"
+  printf 'api-key: %s\n' "$KEY" > "$keyfile"
+  body=$(python3 -c 'import json,sys;print(json.dumps({"url":sys.argv[1],"visibility":sys.argv[2]}))' "$u" "$VIS")
+  resp=$(curl -sS --max-time 60 -X POST -H "@${keyfile}" -H "content-type: application/json" \
+    -d "$body" \
     -D /tmp/us.$$ "https://urlscan.io/api/v1/scan/" 2>/dev/null)
+  rm -f "$keyfile"
   code=$(grep -i '^HTTP' /tmp/us.$$ | tail -n1 | tr -d '\r' | awk '{print $2}')
   rem=$(grep -i '^X-Rate-Limit-Remaining:' /tmp/us.$$ | tail -n1 | tr -d '\r' | awk '{print $2}')
   case "$code" in
@@ -81,12 +86,12 @@ except Exception: print("")')
 
 if [ -z "${FILE:-}" ]; then
   [ $# -lt 1 ] && { echo "need a URL or -f file" >&2; exit 2; }
-  [ "$CHECK" = 1 ] && check "$1" || submit "$1"
+  if [ "$CHECK" = 1 ]; then check "$1"; else submit "$1"; fi
   exit 0
 fi
 [ "$FILE" = "-" ] && LIST=/tmp/us-list.$$ && cat > "$LIST" || LIST="$FILE"
 grep -v -E '^\s*(#|$)' "$LIST" | while IFS= read -r u; do
-  [ "$CHECK" = 1 ] && check "$u" || submit "$u"
+  if [ "$CHECK" = 1 ]; then check "$u"; else submit "$u"; fi
   sleep 3
 done
 [ "${FILE:-}" = "-" ] && rm -f /tmp/us-list.$$

@@ -333,6 +333,16 @@ inject_case() {
 }
 check "fetch refuses option injection through ref, depth and spec" inject_case
 
+arch_inject_case() {
+  printf '#!/bin/sh\ntouch "%s/PWNED"\n' "$T" > "$T/archevil.sh"; chmod +x "$T/archevil.sh"
+  a=$(GHLESS_ARCH="x:-}\$(sh $T/archevil.sh);z" sh -c ". '$ROOT/libexec/common.sh'; arch" 2>&1) && { echo "arch accepted a hostile GHLESS_ARCH"; return 1; }
+  b=$(GHLESS_ARCH="x:-}\$(sh $T/archevil.sh);z" sh -c ". '$ROOT/libexec/common.sh'; pin_value NAK" 2>&1) && { echo "pin_value accepted a hostile GHLESS_ARCH"; return 1; }
+  [ ! -e "$T/PWNED" ] && printf '%s' "$a$b" | grep -q GHLESS_ARCH
+}
+check "a hostile GHLESS_ARCH is refused, not eval'd" arch_inject_case
+
+check "fetch --help exits 0 printing usage" sh -c "'$ROOT/libexec/fetch' --help | grep -q 'ghless fetch SPEC'"
+
 name_case() {
   for bad in .. . ...; do
     "$ROOT/bin/ghless" publish "$FX" --name "$bad" --lanes none >"$T/nm.out" 2>&1
