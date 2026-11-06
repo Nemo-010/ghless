@@ -15,7 +15,9 @@ Run `ghless doctor` first. If `ghless` is not on PATH, run `./install` from the 
 | read issues, PRs, releases, search | `gh ...` (real gh if its token works, else read-only forge fallback, same output) |
 | clone and start work | `ghless fetch owner/repo` prints the checkout path. Work on branch `ghless/work`; commit there. |
 | publish your result | `ghless publish <dir> --name <name>` prints one line per lane. Exit 0 means at least one lane worked. |
-| public temporary page | `ghless serve <name>=<dir>` prints the clone URL (changes on restart) |
+| public temporary page | `ghless serve <name>=<dir>` prints the clone URL (changes on restart). `--json` prints one JSON document instead. |
+| read a served page without HTML | `<url>/llms.txt`, `<url>/<name>/index.json`, `<url>/<name>/files.txt`, `<url>/<name>/raw/PATH` |
+| machine-readable ledger | `ghless status --json` |
 | keep a recoverable copy | `ghless archive <dir>` (add `--public-url URL` for the published URL) |
 | lost account or deleted repo | `ghre ledger ACCOUNT --out work/ACCOUNT`, then `ghre recover` |
 

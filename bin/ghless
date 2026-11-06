@@ -20,7 +20,7 @@ Quickstart:
   ghless status --check             what every host serves right now
 
 Commands:
-  ghless doctor [--brief]            what works on this host (tools, egress, lanes)
+  ghless doctor [--brief|--json]     what works on this host (tools, egress, lanes)
   ghless read SPEC [PATH] [REF]      print one file or the README of a public repo
   ghless fetch SPEC [DIR]            clone any public repo, make a work branch
   ghless work SPEC [DIR]             same as fetch
@@ -29,9 +29,10 @@ Commands:
   ghless archive [DIR] [--name N] [--out DIR] [--no-net] [--deep] [--wait]
                                      [--public-url URL ...] [--extra PATH ...]
                                      bundles + patches + zip, SWH and Wayback requests
-  ghless serve [NAME=PATH ...]       git web index over a temporary cfrs tunnel (--status, --stop)
+  ghless serve [--json] [NAME=PATH ...]
+                                     site over a temporary cfrs tunnel (--status, --stop)
   ghless pack [OUT.zip]              zip ghless itself
-  ghless status [--check]            what was published where (--check asks the hosts)
+  ghless status [--check|--json]     what was published where (--check asks the hosts)
   ghless identity [show|init|export FILE|import FILE]
                                      mint, show, back up or restore the identities
   ghless tools [install|status]      pinned binaries (cfrs, rad, nak, ngit, git-remote-arweave)

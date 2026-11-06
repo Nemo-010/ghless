@@ -23,11 +23,12 @@ refuse() { # refuse NAME CMD... : passes only when the command exits non-zero
 }
 
 for f in "$ROOT/install" "$ROOT"/bin/ghless "$ROOT"/libexec/* "$ROOT"/components/bulk-archive/bin/*.sh; do
+  [ -f "$f" ] || continue
   case "$f" in *.py|*.sh.orig) continue ;; esac
   head -n1 "$f" | grep -q 'sh' || continue
   check "syntax $(basename "$f")" sh -n "$f"
 done
-check "py_compile libexec" python3 -m py_compile "$ROOT/libexec/arweave-wallet.py" "$ROOT/libexec/gitweb-static.py"
+check "py_compile libexec" python3 -m py_compile "$ROOT/libexec/arweave-wallet.py" "$ROOT/libexec/gitweb-static.py" "$ROOT"/libexec/gitweb/*.py
 check "gh-forge transfer tests" python3 "$ROOT/tests/test_transfer.py"
 check "ghre unit tests" sh -c "cd '$ROOT/components/ghre' && python3 -m unittest discover -s tests"
 
@@ -307,6 +308,100 @@ copies_case() {
   [ -f "$T/pub3/fx/downloads/fx-archive.zip" ] && grep -qF 'other copies' "$T/pub3/index.html"
 }
 check "tunnel page links every other copy and the archive download" copies_case
+
+markdown_safety_case() {
+  python3 - "$ROOT/libexec" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+from gitweb import md
+src = ('# <script>alert(1)</script>\n\n[x](javascript:alert(1)) [y](data:text/html,hi) ![z](javascript:1) '
+       '[<img src=x onerror=alert(1)>](http://ok.example/?a=1&b=2) <b onclick=1>raw</b> '
+       '[p](//evil.example/x)\n\n```\n<script>no</script>\n```\n')
+out, _ = md.render(src, lambda t: "R/" + t)
+for bad in ("<script", "javascript:", "data:text", "<img src=x", "<b ", 'href="//evil'):
+    assert bad not in out, (bad, out)
+assert 'href="http://ok.example/?a=1&amp;b=2"' in out, out
+assert "&lt;script&gt;no&lt;/script&gt;" in out, out
+PY
+}
+check "markdown renderer escapes raw HTML and refuses javascript:, data: and // targets" markdown_safety_case
+
+site_case() {
+  S="$T/site"; mkdir -p "$T/sfx/docs" "$T/sfx/img"
+  git -C "$T/sfx" init -q -b main
+  printf '# Title\n\nSee [guide](docs/guide.md) and [src](docs/code.py#L2) and ![logo](img/logo.png)\n\n## One\n## Two\n## Three\n' > "$T/sfx/README.md"
+  printf '# Guide\n\nBack to [readme](../README.md)\n' > "$T/sfx/docs/guide.md"
+  printf 'a=1\nb=2\n' > "$T/sfx/docs/code.py"
+  printf '\211PNG\0\0\0' > "$T/sfx/img/logo.png"
+  git -C "$T/sfx" add -A; git -C "$T/sfx" -c user.name=t -c user.email=t@t commit -qm "first <b>commit</b>"
+  python3 "$ROOT/libexec/gitweb-static.py" --base-url https://pub.example.net "$S" sfx="$T/sfx" || return 1
+  R="$S/sfx"; head=$(git -C "$T/sfx" rev-parse HEAD)
+  grep -qF 'git clone https://pub.example.net/sfx.git' "$R/index.html" || { echo "clone command lacks base url"; return 1; }
+  grep -qF 'href="doc/docs/guide.md.html"' "$R/index.html" || { echo "README link to a .md not rewritten to its rendered page"; return 1; }
+  grep -qF 'href="view/docs/code.py.html#L2"' "$R/index.html" || { echo "line anchor link lost"; return 1; }
+  grep -qF 'src="raw/img/logo.png"' "$R/index.html" || { echo "README image not served from raw/"; return 1; }
+  grep -qF 'href="../../README.md.html"' "$R/doc/docs/guide.md.html" && { echo "wrong relative link"; return 1; }
+  grep -qF 'href="../../doc/README.md.html"' "$R/doc/docs/guide.md.html" || { echo "doc page link to ../README.md wrong"; return 1; }
+  grep -qF 'id="L2"' "$R/view/docs/code.py.html" || { echo "no line anchors"; return 1; }
+  cmp "$R/raw/docs/code.py" "$T/sfx/docs/code.py" && cmp "$R/raw/img/logo.png" "$T/sfx/img/logo.png" || { echo "raw differs"; return 1; }
+  [ -f "$R/tree/docs/index.html" ] && grep -qF 'Contents' "$R/index.html" || { echo "no directory page or contents"; return 1; }
+  [ -f "$R/commit/$(printf %.7s "$head").html" ] && grep -qF 'first &lt;b&gt;commit&lt;/b&gt;' "$R/commits/index.html" || { echo "commit pages missing or unescaped"; return 1; }
+  [ "$(sort "$R/files.txt" | tr '\n' ' ')" = "README.md docs/code.py docs/guide.md img/logo.png " ] || { echo "files.txt wrong"; return 1; }
+  python3 - "$R/index.json" "$S/index.json" "$head" <<'PY' || return 1
+import json, sys
+one = json.load(open(sys.argv[1])); every = json.load(open(sys.argv[2]))
+assert one["head"] == sys.argv[3] and one["files"] == 4 and one["commits"] == 1, one
+assert one["clone"] == "https://pub.example.net/sfx.git", one["clone"]
+assert [r["name"] for r in every["repositories"]] == ["sfx"]
+PY
+  grep -qF 'git clone https://pub.example.net/sfx.git' "$S/llms.txt" && grep -qF 'sfx/raw/PATH' "$R/llms.txt"
+}
+check "site has rendered docs, directory pages, raw files, line anchors, commit pages, index.json, llms.txt" site_case
+
+verified_copies_case() {
+  printf '%s\n' "t	radicle	fx	rad:zVER1 (copy on: iris.radicle.xyz)	ok:verified" \
+    "t	nostr	fx	nostr://npubV/relay.example/fx	ok:verified" \
+    "t	arweave	fx	parts: arweave://ADDR/fx-part1	ok:verified" > "$T/led3.tsv"
+  python3 "$ROOT/libexec/gitweb-static.py" --ledger "$T/led3.tsv" "$T/pub4" fx="$FX" || return 1
+  for want in 'rad:zVER1' 'gitworkshop.dev/npubV' 'git clone arweave://ADDR/fx-part1'; do
+    grep -qF "$want" "$T/pub4/fx/index.html" || { echo "ok:verified row dropped: missing $want"; return 1; }
+  done
+}
+check "copies from ok:verified ledger rows are linked, not dropped" verified_copies_case
+
+serve_json_case() {
+  mkdir -p "$T/fakecfrs"
+  cat > "$T/fakecfrs/cfrs" <<STUB
+#!/bin/sh
+case "\$1" in
+  ps) exit 0 ;;
+  serve) echo '{"url":"http://127.0.0.1:1"}' ;;
+esac
+STUB
+  chmod +x "$T/fakecfrs/cfrs"
+  out=$(PATH="$T/fakecfrs:$PATH" GHLESS_DATA="$T/sj" "$ROOT/bin/ghless" serve --json sj="$FX" 2>/dev/null) || { echo "$out"; return 1; }
+  printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["url"] == "http://127.0.0.1:1", d
+assert d["repositories"][0]["clone"] == "git clone http://127.0.0.1:1/sj.git", d
+' || return 1
+  grep -qF 'git clone http://127.0.0.1:1/sj.git' "$T/sj/pub/sj/index.html"
+}
+check "serve --json prints one document and bakes the tunnel URL into the pages" serve_json_case
+
+status_json_case() {
+  printf '%s\n' "t1	nostr	p	nostr://a/b/p	failed" "t2	nostr	p	nostr://a/b/p	ok:verified" "t3	arweave	p	x	ok" > "$T/led4.tsv"
+  mkdir -p "$T/sd"; cp "$T/led4.tsv" "$T/sd/published.tsv"
+  out=$(GHLESS_DATA="$T/sd" "$ROOT/bin/ghless" status --json) || return 1
+  printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert [(r["lane"], r["status"]) for r in d] == [("arweave", "ok"), ("nostr", "ok:verified")], d
+'
+  [ "$(GHLESS_DATA="$T/empty" "$ROOT/bin/ghless" status --json)" = "[]" ] && refuse "status rejects unknown options" "$ROOT/bin/ghless" status --bogus
+}
+check "status --json lists the latest row per lane and project" status_json_case
 
 name_continuity_case() {
   C="$T/cont"; git clone -q "$FX" "$C"

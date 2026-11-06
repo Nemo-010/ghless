@@ -1,63 +1,37 @@
 #!/usr/bin/env python3
 """Build a static git web index: browsable pages plus dumb-HTTP clonable repos.
 
-usage: gitweb-static.py [--ledger FILE] [--download NAME=FILE ...] OUTDIR NAME=REPO_PATH [...]
+usage: gitweb-static.py [--ledger FILE] [--download NAME=FILE ...] [--base-url URL] OUTDIR NAME=REPO_PATH [...]
 
 --ledger reads the publish ledger (TSV: time, lane, project, url, status) and adds an
 "Other copies" section to each repo page and the index: Radicle, Nostr, Arweave, archives.
 --download copies FILE into NAME/downloads/ and links it (archive zip, release zip).
+--base-url puts the public address into the clone commands, llms.txt and index.json.
 
 For each repo it writes, under OUTDIR:
-  NAME.git/            bare repo with update-server-info run (git clone works over plain HTTP)
-  NAME/index.html      README, recent commits, clone commands, file list
-  NAME/view/PATH.html  every text file under 512 KiB, escaped
-  NAME/NAME.zip        git archive of HEAD
-and OUTDIR/index.html listing every repo. The output is static files only.
+  NAME.git/              bare repo with update-server-info run (git clone works over plain HTTP)
+  NAME/index.html        facts, clone command, files, rendered README, other copies, commits, branches
+  NAME/tree/DIR/         directory listings with their README
+  NAME/view/PATH.html    text files under 512 KiB with line numbers and #L anchors
+  NAME/doc/PATH.html     Markdown files rendered
+  NAME/raw/PATH          the file itself, as text or binary, up to 4 MiB
+  NAME/commits/, commit/ history and the diff of the latest 50 commits
+  NAME/files.txt, index.json, llms.txt, NAME.zip
+and OUTDIR/index.html, index.json and llms.txt listing every repo. The output is static files only.
 """
 import html
+import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import urllib.parse
 
-MAX_VIEW = 512 * 1024
-CSS = """
-:root{--bg:#fbfbfa;--fg:#1d2327;--muted:#5d6870;--line:#dde1e4;--card:#fff;--code:#f1f3f4;--link:#0b5fb3;--accent:#0b5fb3}
-@media (prefers-color-scheme:dark){:root{--bg:#14171a;--fg:#e3e7ea;--muted:#9aa5ad;--line:#2b3238;--card:#1b1f23;--code:#222830;--link:#7db7ff;--accent:#7db7ff}}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main,header,footer{max-width:62rem;margin:0 auto;padding:0 1rem}
-header{padding-top:1.2rem;padding-bottom:.4rem;border-bottom:1px solid var(--line);margin-bottom:1.2rem}
-header nav{color:var(--muted);font-size:.9rem;overflow-wrap:anywhere}
-h1{font-size:1.7rem;margin:.3rem 0 .2rem}
-h2{font-size:1.15rem;margin:2rem 0 .6rem;padding-bottom:.25rem;border-bottom:1px solid var(--line)}
-a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
-code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
-code{background:var(--code);padding:.08rem .3rem;border-radius:4px;overflow-wrap:anywhere;word-break:break-word}
-pre{background:var(--code);padding:.9rem 1rem;border-radius:8px;overflow-x:auto;max-width:100%;margin:.6rem 0}
-pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}
-p.lead{color:var(--muted);margin:.2rem 0 1rem}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.2rem 1rem}
-dl.copies{margin:0}
-dl.copies div{padding:.7rem 0;border-bottom:1px solid var(--line)}
-dl.copies div:last-child{border-bottom:0}
-dl.copies dt{font-weight:600}
-dl.copies dd{margin:.15rem 0 0;overflow-wrap:anywhere;word-break:break-word}
-dl.copies dd.url{font-size:.85rem}
-dl.copies dd.cmd{margin-top:.3rem}
-table{width:100%;border-collapse:collapse;table-layout:auto}
-th{white-space:nowrap;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left}
-th,td{padding:.4rem .6rem .4rem 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
-td.num,th.num{text-align:right;white-space:nowrap;color:var(--muted)}
-td.hash,td.date{white-space:nowrap;color:var(--muted)}
-.tablewrap{overflow-x:auto}
-footer{color:var(--muted);font-size:.85rem;padding-top:1.5rem;padding-bottom:2rem}
-@media (max-width:40rem){body{font-size:15px}h1{font-size:1.4rem}td.date{display:none}th.date{display:none}}
-"""
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gitweb import build, copies  # noqa: E402
+from gitweb.theme import crumbs, esc, page  # noqa: E402
 
+import re  # noqa: E402
 
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
@@ -66,190 +40,50 @@ def href(path: str) -> str:
     return html.escape(urllib.parse.quote(path), quote=True)
 
 
-def git(*args, cwd=None, check=True):
-    return subprocess.run(["git", *args], cwd=cwd, check=check,
-                          capture_output=True).stdout
-
-
-def page(title, body, nav=""):
-    return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-            f"<title>{html.escape(title)}</title><style>{CSS}</style></head><body>"
-            f"<header><nav>{nav}</nav></header><main>{body}</main>"
-            "<footer>Static page generated by ghless. No scripts; every link is plain HTML.</footer>"
-            "</body></html>\n")
-
-
-def is_text(data: bytes) -> bool:
-    return b"\0" not in data[:8000]
-
-
-def copy_links(name, rows, downloads):
-    """[(label, href or None, text)] for every other copy of project `name`."""
-    links = []
-    latest = {}
-    for ts, lane, proj, url, status in rows:
-        if proj == name and lane != "tunnel":
-            latest[lane] = (url, status)
-    if "radicle" in latest and latest["radicle"][1] == "ok":
-        m = re.search(r"rad:[A-Za-z0-9]+", latest["radicle"][0])
-        if m:
-            rid = m.group(0)
-            links.append(("Radicle (seed API)", f"https://iris.radicle.xyz/api/v1/repos/{rid}", f"rad clone {rid}"))
-            links.append(("Radicle (explorer)", f"https://radicle.network/nodes/iris.radicle.xyz/{rid}", ""))
-    if "nostr" in latest and latest["nostr"][1] == "ok":
-        m = re.match(r"nostr://([^/]+)/([^/]+)/([^/]+)$", latest["nostr"][0])
-        if m:
-            npub, relay, ident = m.groups()
-            links.append(("Nostr (gitworkshop)", f"https://gitworkshop.dev/{npub}/{relay}/{ident}", f"git clone {latest['nostr'][0]}"))
-            links.append(("Nostr (GRASP smart-HTTP)", f"https://{relay}/{npub}/{ident}.git/info/refs?service=git-upload-pack", ""))
-    if "arweave" in latest and latest["arweave"][1] == "ok":
-        found = re.findall(r"arweave://[A-Za-z0-9_-]+/[A-Za-z0-9._-]+", latest["arweave"][0])
-        if found:
-            label = "Arweave" if len(found) == 1 else f"Arweave ({len(found)} parts, copy every part's top-level entries into one directory)"
-            links.append((label, None, "\n".join(f"git clone {u}" for u in found)))
-    if "swh" in latest:
-        url, status = latest["swh"]
-        links.append(("Software Heritage", "https://archive.softwareheritage.org/browse/origin/?origin_url=" + urllib.parse.quote(url, safe=""), "save request: " + status))
-    if "wayback" in latest:
-        m = re.search(r"https://web\.archive\.org/web/\S+", latest["wayback"][1])
-        if m:
-            links.append(("Wayback Machine", m.group(0), ""))
-    for dl in downloads:
-        links.append(("Download", f"downloads/{href_name(dl)}", os.path.basename(dl)))
-    return links
-
-
-def href_name(path):
-    return urllib.parse.quote(os.path.basename(path))
-
-
-def links_html(links, prefix=""):
-    """One <dl> entry per copy: label, full link text (wraps), optional command."""
-    if not links:
-        return ""
-    items = []
-    for label, link, text in links:
-        parts = [f"<dt>{html.escape(label)}</dt>"]
-        if link:
-            target = link if link.startswith("http") else prefix + link
-            shown = link if link.startswith("http") else text
-            parts.append(f"<dd class=\"url\"><a href=\"{html.escape(target, quote=True)}\">{html.escape(shown)}</a></dd>")
-            if text and link.startswith("http"):
-                parts.append(f"<dd class=\"cmd\"><code>{html.escape(text)}</code></dd>")
-        elif text:
-            for line in text.split("\n"):
-                parts.append(f"<dd class=\"cmd\"><code>{html.escape(line)}</code></dd>")
-        items.append("<div>" + "".join(parts) + "</div>")
-    return "<h2>Other copies</h2><div class=\"card\"><dl class=\"copies\">" + "".join(items) + "</dl></div>"
-
-
-def build_repo(out, name, src, ledger_rows=(), downloads=()):
-    bare = os.path.join(out, f"{name}.git")
-    if os.path.isdir(bare):
-        git("fetch", "-q", "--force", "--tags", src, "+refs/heads/*:refs/heads/*", cwd=bare)
-        git("remote", "remove", "origin", cwd=bare, check=False)
-        try:
-            os.remove(os.path.join(bare, "FETCH_HEAD"))
-        except FileNotFoundError:
-            pass
-    else:
-        git("clone", "-q", "--bare", src, bare)
-        git("remote", "remove", "origin", cwd=bare, check=False)
-    # bare HEAD follows the source's checked-out branch, so a clone of the
-    # served repo gets what the user is working on, not a stale default branch.
-    # HEAD is written as a raw sha: dumb-HTTP clones resolve a symref HEAD only
-    # when the target loose ref file exists, and branch names with slashes
-    # confuse some clients; a sha works everywhere.
-    src_head = git("symbolic-ref", "-q", "HEAD", cwd=src, check=False).decode().strip()
-    head_sha = ""
-    if src_head.startswith("refs/heads/"):
-        head_sha = git("rev-parse", "-q", "--verify", src_head, cwd=bare, check=False).decode().strip()
-    if not head_sha:
-        branches = git("for-each-ref", "--format=%(refname)", "refs/heads", cwd=bare).decode().split()
-        if not branches:
-            raise SystemExit(f"{name}: no branches")
-        git("symbolic-ref", "HEAD", branches[0], cwd=bare)
-        head_sha = git("rev-parse", "-q", "--verify", "HEAD", cwd=bare).decode().strip()
-    with open(os.path.join(bare, "HEAD"), "w", encoding="ascii") as fh:
-        fh.write(head_sha + "\n")
-    git("update-server-info", cwd=bare)
-
-    site = os.path.join(out, name)
-    shutil.rmtree(site, ignore_errors=True)
-    os.makedirs(site)
-    zip_path = os.path.join(site, f"{name}.zip")
-    with open(zip_path, "wb") as fh:
-        fh.write(git("archive", "--format=zip", f"--prefix={name}/", "HEAD", cwd=bare))
-
-    entries = git("ls-tree", "-r", "-z", "HEAD", cwd=bare).decode().split("\0")
-    files = [e.split("\t", 1)[1] for e in entries if e and e.split(" ", 1)[0] != "160000"]
-    rows = []
-    for f in files:
-        if f.startswith("/") or ".." in f.split("/"):
-            continue
-        data = git("cat-file", "blob", f"HEAD:{f}", cwd=bare)
-        if is_text(data) and len(data) <= MAX_VIEW:
-            dest = os.path.join(site, "view", f + ".html")
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            with open(dest, "w", encoding="utf-8") as fh:
-                up = "../" * (f.count("/") + 1)
-                nav = (f"<a href=\"{up}../index.html\">all repositories</a> / <a href=\"{up}index.html\">{html.escape(name)}</a> / "
-                       f"{html.escape(f)}")
-                fh.write(page(f"{name}: {f}", f"<h1 class=\"mono\" style=\"font-size:1.1rem\">{html.escape(f)}</h1>"
-                              f"<pre>{html.escape(data.decode('utf-8', 'replace'))}</pre>", nav))
-            rows.append(f"<tr><td><a href=\"view/{href(f)}.html\">{html.escape(f)}</a></td><td class=\"num\">{len(data):,}</td></tr>")
-        else:
-            rows.append(f"<tr><td>{html.escape(f)} <span class=\"mono\">(not shown)</span></td><td class=\"num\">{len(data):,}</td></tr>")
-
-    readme = ""
-    for cand in ("README.md", "README", "README.txt", "readme.md"):
-        r = git("cat-file", "blob", f"HEAD:{cand}", cwd=bare, check=False)
-        if r:
-            readme = f"<h2>{cand}</h2><pre class=\"wrap\">{html.escape(r.decode('utf-8', 'replace'))}</pre>"
-            break
-    dl_dir = os.path.join(site, "downloads")
-    for dl in downloads:
-        os.makedirs(dl_dir, exist_ok=True)
-        shutil.copy(dl, os.path.join(dl_dir, os.path.basename(dl)))
-    links = copy_links(name, ledger_rows, downloads)
-    log = git("log", "-n", "30", "--format=%h%x09%an%x09%ad%x09%s", "--date=short", cwd=bare).decode()
-    log_rows = ""
-    for line in log.splitlines():
-        h, author, date, subject = (line.split("\t", 3) + ["", "", "", ""])[:4]
-        log_rows += (f"<tr><td class=\"hash mono\">{html.escape(h)}</td><td class=\"date\">{html.escape(date)}</td>"
-                     f"<td>{html.escape(subject)}<br><span class=\"mono\" style=\"color:var(--muted)\">{html.escape(author)}</span></td></tr>")
-    n = html.escape(name)
-    body = (f"<h1>{n}</h1><p class=\"lead\">Clone over plain HTTP, or download a zip of HEAD.</p>"
-            f"<pre>git clone &lt;this-site&gt;/{n}.git</pre>"
-            f"<p><a href=\"{href(name)}.zip\">{n}.zip</a> (HEAD)</p>"
-            f"{links_html(links)}{readme}"
-            f"<h2>Recent commits</h2><div class=\"tablewrap\"><table><tr><th>commit</th><th class=\"date\">date</th><th>message</th></tr>{log_rows}</table></div>"
-            f"<h2>Files ({len(files)})</h2><div class=\"tablewrap\"><table><tr><th>path</th><th class=\"num\">bytes</th></tr>{''.join(rows)}</table></div>")
-    with open(os.path.join(site, "index.html"), "w", encoding="utf-8") as fh:
-        fh.write(page(name, body, "<a href=\"../index.html\">all repositories</a>"))
-    return name, git("rev-parse", "--short", "HEAD", cwd=bare).decode().strip(), \
-        git("log", "-1", "--format=%s", cwd=bare).decode().strip(), links
-
-
-def read_ledger(path):
-    rows = []
-    if path and os.path.isfile(path):
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) == 5:
-                    rows.append(tuple(parts))
-    return rows
+def write_index(out, items, base_url):
+    rows = ""
+    for name, short, subject, links, summary in items:
+        rows += (f'<tr><td><a href="{href(name)}/index.html">{html.escape(name)}</a></td>'
+                 f'<td class="hash mono">{html.escape(short)}</td><td class="date">{html.escape(summary["head_date"])}</td>'
+                 f'<td>{html.escape(subject)}</td></tr>')
+    copies_h = "".join(
+        f'<h2>{html.escape(n)}: other copies</h2>' + copies.links_html(l, prefix=f"{href(n)}/", heading=False)
+        for n, _, _, l, _ in items if l)
+    base = base_url.rstrip("/") if base_url else "<this-site>"
+    cmds = "\n".join(f"git clone {base}/{n}.git" for n, *_ in items)
+    body = ("<h1>Git index</h1><p class=\"lead\">Every repository here clones over plain HTTP and is also "
+            "browsable. Pick one, or copy a command.</p>"
+            f'<pre class="cmd">{html.escape(cmds)}</pre>'
+            + ("" if base_url else '<p class="lead">Replace <code>&lt;this-site&gt;</code> with the address in your browser bar.</p>')
+            + f'<div class="tablewrap"><table><thead><tr><th>repository</th><th>HEAD</th><th class="date">date</th><th>last commit</th></tr></thead><tbody>{rows}</tbody></table></div>'
+            + copies_h)
+    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(page("Git index", body, crumbs([("All repositories", None)]), "Repositories served by ghless",
+                      '<link rel="alternate" type="application/json" href="index.json">'))
+    index = {"repositories": [{k: v for k, v in s.items() if k != "files_detail"} for *_, s in items]}
+    with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as fh:
+        json.dump(index, fh, indent=2)
+        fh.write("\n")
+    root = base_url.rstrip("/")
+    lines = ["# Git index", "", "> Static git hosting. Each repository clones over plain HTTP."]
+    if not root:
+        lines.append("> Addresses start with /: prefix them with the scheme and host this file was fetched from.")
+    lines += ["", "## Repositories"]
+    for n, short, subject, _, s in items:
+        lines.append(f"- {n}: {subject} (HEAD {short}). Clone: git clone {root}/{n}.git ; details: {root}/{n}/llms.txt")
+    with open(os.path.join(out, "llms.txt"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
 
 
 def main():
     args = sys.argv[1:]
-    ledger, downloads = None, {}
+    ledger, downloads, base_url = None, {}, ""
     while args and args[0].startswith("--"):
         flag = args.pop(0)
         if flag == "--ledger" and args:
             ledger = args.pop(0)
+        elif flag == "--base-url" and args:
+            base_url = args.pop(0)
         elif flag == "--download" and args:
             n, _, f = args.pop(0).partition("=")
             if os.path.isfile(f):
@@ -260,7 +94,7 @@ def main():
     if len(args) < 2:
         print(__doc__, file=sys.stderr)
         return 2
-    rows = read_ledger(ledger)
+    rows = copies.read_ledger(ledger)
     out = args[0]
     os.makedirs(out, exist_ok=True)
     items, failed = [], []
@@ -272,7 +106,7 @@ def main():
             continue
         existed = os.path.isdir(os.path.join(out, f"{name}.git"))
         try:
-            items.append(build_repo(out, name, src, rows, downloads.get(name, [])))
+            items.append(build.build_repo(out, name, src, rows, downloads.get(name, []), base_url))
         except (subprocess.CalledProcessError, SystemExit) as exc:
             if not existed:
                 shutil.rmtree(os.path.join(out, f"{name}.git"), ignore_errors=True)
@@ -282,15 +116,7 @@ def main():
             failed.append(name)
     if not items:
         return 1
-    table = "".join(f"<tr><td><a href=\"{href(n)}/index.html\">{html.escape(n)}</a></td>"
-                    f"<td class=\"hash mono\">{h}</td><td>{html.escape(sub)}</td></tr>" for n, h, sub, _ in items)
-    copies = "".join(f"<section><h2 style=\"margin-top:2.2rem\">{html.escape(n)}: other copies</h2>" + links_html(l, prefix=f"{href(n)}/").replace("<h2>Other copies</h2>", "") + "</section>"
-                     for n, _, _, l in items if l)
-    body = ("<h1>Git index</h1><p class=\"lead\">Every repository here clones over plain HTTP: "
-            "<code>git clone &lt;this-site&gt;/NAME.git</code></p>"
-            f"<div class=\"tablewrap\"><table><tr><th>repository</th><th>HEAD</th><th>last commit</th></tr>{table}</table></div>{copies}")
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
-        fh.write(page("Git index", body, "git index"))
+    write_index(out, items, base_url)
     return 1 if failed else 0
 
 

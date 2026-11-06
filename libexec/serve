@@ -5,6 +5,7 @@
 # (Radicle, Nostr, Arweave, Software Heritage, Wayback) and the newest archive zip.
 # A directory that is not a git checkout (or a dirty ghless) is snapshotted
 # into a scratch repo first, so a zip-installed tree can be served.
+#   ghless serve --json ...                 same, but stdout is one JSON document (url, pages, clone commands)
 #   ghless serve --stop | --status
 # Repos are published as static files (browsable pages plus dumb-HTTP clone) in
 # $GHLESS_DATA/pub, served by a detached `cfrs serve`. The URL changes whenever
@@ -21,6 +22,7 @@ case "${1:-}" in
   --status) if cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)" | grep -q "^$INSTANCE"; then cfrs ps 2>&1 | grep -E "^(NAME|$INSTANCE)"; else echo "no tunnel is running (start one with: ghless serve)"; fi; exit 0 ;;
 esac
 
+JSON=0; [ "${1:-}" = "--json" ] && { JSON=1; shift; }
 [ $# -gt 0 ] || set -- "ghless=$GHLESS_HOME"
 mkdir -p "$PUB" "$GHLESS_DATA/snap"
 n_args=$#; i=0; CLONES=""
@@ -52,21 +54,43 @@ for n in $CLONES; do
   zp=$(awk -F'\t' -v n="$n" '$2=="pack" && $3==n {p=$4} END {print p}' "$GHLESS_DATA/published.tsv" 2>/dev/null)
   [ -f "$zp" ] && DLARGS="$DLARGS --download $n=$zp"
 done
-# shellcheck disable=SC2086
-python3 "$GHLESS_HOME/libexec/gitweb-static.py" --ledger "$GHLESS_DATA/published.tsv" $DLARGS "$PUB" "$@" || warn "some repositories were not published (see above)"
+build_pages() { # build_pages BASE_URL (empty when the tunnel is not up yet)
+  _base="$1"; shift
+  # shellcheck disable=SC2086
+  python3 "$GHLESS_HOME/libexec/gitweb-static.py" --ledger "$GHLESS_DATA/published.tsv" $DLARGS ${_base:+--base-url "$_base"} "$PUB" "$@"
+}
 
 # A ready instance with this name is reused (the URL stays the same); only a
-# fresh start prints a new URL.
+# fresh start prints a new URL. Pages are rebuilt once the URL is known so the
+# clone commands, llms.txt and index.json carry the real address.
 if cfrs ps 2>/dev/null | grep -q "^$INSTANCE .*ready"; then
   url=$(cfrs ps 2>/dev/null | awk -v i="$INSTANCE" '$1==i {print $NF; exit}')
+  build_pages "$url" "$@" || warn "some repositories were not published (see above)"
 else
+  build_pages "" "$@" || warn "some repositories were not published (see above)"
   doc=$(cfrs serve --detach --name "$INSTANCE" --dir "$PUB" 2>/dev/null) || die "cfrs serve failed; see: cfrs logs $INSTANCE"
   url=$(printf '%s' "$doc" | jq -r '.url // .public_url // empty' 2>/dev/null)
   [ -n "$url" ] || url=$(printf '%s' "$doc" | grep -oE 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' | head -n1)
+  [ -n "$url" ] || die "no URL in cfrs output: $doc"
+  build_pages "$url" "$@" || warn "some repositories were not published (see above)"
 fi
-[ -n "$url" ] || die "no URL in cfrs output: $doc"
+[ -n "$url" ] || die "no URL in cfrs output"
 code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$url/index.html")
-say "serving $PUB (index answers $code)"
-for n in $CLONES; do [ -d "$PUB/$n.git" ] && echo "git clone $url/$n.git"; done
-echo "$url"
+if [ "$code" = 200 ]; then say "serving $PUB: index answers $code"; else warn "the tunnel answered $code for $url/index.html; it may need a few seconds, check: ghless serve --status"; fi
 for n in $CLONES; do ledger_add tunnel "$n" "$url" "$code"; done
+if [ "$JSON" = 1 ]; then
+  python3 - "$url" "$code" $CLONES <<'PY'
+import json, sys
+url, code, names = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
+print(json.dumps({"url": url, "index_status": code, "repositories": [
+    {"name": n, "page": f"{url}/{n}/", "clone": f"git clone {url}/{n}.git", "summary": f"{url}/{n}/index.json",
+     "llms": f"{url}/{n}/llms.txt"} for n in names]}, indent=2))
+PY
+  exit 0
+fi
+for n in $CLONES; do
+  [ -d "$PUB/$n.git" ] || continue
+  printf 'ghless: %s\n  browse  %s/%s/\n  clone   git clone %s/%s.git\n  agents  %s/%s/llms.txt\n' "$n" "$url" "$n" "$url" "$n" "$url" "$n" >&2
+  echo "git clone $url/$n.git"
+done
+echo "$url"

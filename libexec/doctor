@@ -3,10 +3,31 @@
 set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
-BRIEF=0; [ "${1:-}" = "--brief" ] && BRIEF=1
+BRIEF=0; JSON=0
+case "${1:-}" in
+  --brief) BRIEF=1 ;;
+  --json) JSON=1 ;;
+  "") ;;
+  *) die "unknown option: $1 (usage: ghless doctor [--brief|--json])" ;;
+esac
 rc=0
+ROWS=""
+if [ "$JSON" = 1 ]; then ROWS=$(mktemp "${TMPDIR:-/tmp}/ghless-rows.XXXXXX"); fi
 
-row() { printf '%-22s %-8s %s\n' "$1" "$2" "$3"; }
+row() {
+  if [ "$JSON" = 1 ]; then printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$ROWS"; else printf '%-22s %-8s %s\n' "$1" "$2" "$3"; fi
+}
+finish() {
+  if [ "$JSON" = 1 ]; then
+    python3 - "$ROWS" "$rc" <<'PY'
+import json, sys
+rows = [dict(zip(("check", "status", "detail"), l.rstrip("\n").split("\t") + ["", ""])) for l in open(sys.argv[1], encoding="utf-8")]
+print(json.dumps({"ok": sys.argv[2] == "0", "checks": rows}, indent=2))
+PY
+    rm -f "$ROWS"
+  fi
+  exit $rc
+}
 code() {
   c=$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null)
   case "$c" in 2*|3*) printf 'ok(%s)' "$c" ;; *) printf 'FAIL(%s)' "$c" ;; esac
@@ -28,12 +49,12 @@ for t in cfrs rad nak ngit git-remote-arweave; do
     else row "$t" ok "$(command -v "$t")"; fi
   else row "$t" missing "run: ghless tools install"; fi
 done
-[ "$BRIEF" = 1 ] && exit $rc
+[ "$BRIEF" = 1 ] && finish
 
 row "arch" "$(arch)" "$(uname -sr)"
 # The network probes are independent; run them together and print in order.
 P=$(mktemp -d "${TMPDIR:-/tmp}/ghless-doctor.XXXXXX")
-trap 'rm -rf "$P"' EXIT
+trap 'rm -rf "$P" "$ROWS"' EXIT
 probe() { code "$2" > "$P/$1" 2>/dev/null & }
 probe 1 https://github.com/git/git
 probe 2 https://api.github.com/rate_limit
@@ -70,4 +91,4 @@ have rad && lanes="$lanes radicle"
 have ngit && lanes="$lanes nostr"
 have git-remote-arweave && lanes="$lanes arweave"
 [ -n "$lanes" ] && row "publish lanes" "ready:$lanes" "" || row "publish lanes" none "run: ghless tools install"
-exit $rc
+finish

@@ -12,8 +12,8 @@ _ghless() {
     fetch|work) COMPREPLY=($(compgen -W "--ref --depth" -- "$cur")) ;;
     identity) COMPREPLY=($(compgen -W "show init export import" -- "$cur")) ;;
     tools) COMPREPLY=($(compgen -W "install status cfrs radicle nak ngit arweave" -- "$cur")) ;;
-    status) COMPREPLY=($(compgen -W "--check" -- "$cur")) ;;
-    serve) COMPREPLY=($(compgen -W "--status --stop" -- "$cur")) ;;
+    status) COMPREPLY=($(compgen -W "--check --json" -- "$cur")) ;;
+    serve) COMPREPLY=($(compgen -W "--json --status --stop" -- "$cur")) ;;
     completion) COMPREPLY=($(compgen -W "bash zsh" -- "$cur")) ;;
     *) COMPREPLY=($(compgen -f -- "$cur")) ;;
   esac
@@ -33,8 +33,8 @@ _ghless() {
     fetch|work) _values 'option' --ref --depth ;;
     identity) _values 'action' show init export import ;;
     tools) _values 'tool' install status cfrs radicle nak ngit arweave ;;
-    status) _values 'option' --check ;;
-    serve) _values 'option' --status --stop ;;
+    status) _values 'option' --check --json ;;
+    serve) _values 'option' --json --status --stop ;;
     completion) _values 'shell' bash zsh ;;
     *) _files ;;
   esac

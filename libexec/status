@@ -1,12 +1,35 @@
 #!/bin/sh
 # status: what was published where, from the ledger.
 #   ghless status [--check]    --check asks Radicle seeds, the Nostr GRASP server, Arweave and the git web index what they serve now
+#   ghless status --json       the latest ledger row per lane and project as a JSON array (no network)
 set -u
 GHLESS_HOME="${GHLESS_HOME:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 . "$GHLESS_HOME/libexec/common.sh"
-CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+CHECK=0; JSON=0
+case "${1:-}" in
+  --check) CHECK=1 ;;
+  --json) JSON=1 ;;
+  "") ;;
+  *) die "unknown option: $1 (usage: ghless status [--check|--json])" ;;
+esac
 L="$GHLESS_DATA/published.tsv"
-[ -s "$L" ] || { echo "nothing published yet (ghless publish DIR)"; exit 0; }
+if [ ! -s "$L" ]; then
+  if [ "$JSON" = 1 ]; then echo "[]"; else echo "nothing published yet. Next: ghless publish DIR, or ghless serve DIR for a temporary public page"; fi
+  exit 0
+fi
+if [ "$JSON" = 1 ]; then
+  python3 - "$L" <<'PY'
+import json, sys
+latest = {}
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    p = line.rstrip("\n").split("\t")
+    if len(p) == 5:
+        latest[(p[1], p[2])] = dict(zip(("time", "lane", "project", "url", "status"), p))
+print(json.dumps(sorted(latest.values(), key=lambda r: (r["project"], r["lane"])), indent=2))
+PY
+  exit 0
+fi
+printf '%-20s %-9s %-14s %s\n' TIME LANE STATUS "PROJECT  WHERE"
 # latest row per lane+project
 awk -F'\t' '{k=$2 "\t" $3; row[k]=$0} END {for (k in row) print row[k]}' "$L" | sort -t'	' -k3,3 -k2,2 |
 while IFS='	' read -r ts lane proj url st; do
@@ -20,7 +43,7 @@ while IFS='	' read -r ts lane proj url st; do
       sha=$(GH_FORGE_MODE=real gh api "repos/$repo/commits/main" --jq .sha 2>/dev/null)
       printf '    %-22s head %s\n' "github.com" "${sha:-absent}" ;;
     radicle)
-      [ "$st" = ok ] || continue
+      case "$st" in ok*) ;; *) continue ;; esac
       rid=$(printf '%s' "$url" | grep -o 'rad:[A-Za-z0-9]*')
       [ -n "$rid" ] || continue
       for h in iris.radicle.xyz radicle.jarg.io seed.radicle.xyz; do
