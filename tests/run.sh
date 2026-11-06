@@ -246,7 +246,7 @@ hostile_import_case() {
 check "identity import refuses links; relative export lands in the cwd" hostile_import_case
 
 relocate_case() {
-  H6="$T/home6"; mkdir -p "$H6"; mkdir "$T/ra"; (cd "$ROOT" && git ls-files -z | tar --null -T - -cf -) | (cd "$T/ra" && tar -xf -)
+  H6="$T/home6"; mkdir -p "$H6"; mkdir "$T/ra"; (cd "$ROOT" && tar --exclude=.git --exclude=__pycache__ -cf - .) | (cd "$T/ra" && tar -xf -)
   e() { env -u GHLESS_DATA -u GHLESS_WORK HOME="$H6" GHLESS_PREFIX="$H6/p" "$@"; }
   (cd "$T/ra" && e ./install --no-tools --no-skill) >/dev/null 2>&1 || return 1
   mv "$T/ra" "$T/rb"
